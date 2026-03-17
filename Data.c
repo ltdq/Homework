@@ -58,13 +58,18 @@ void data_init() {
 // 插入数据
 void data_insert(const char* key, const char* value) {
   unsigned int idx = hash_key(key);
-  if (hash_table[idx]) {
-    printf(
-        "'%s' has existing entry at index: %u, please use data_modify to "
-        "update\n",
-        key, idx);
-    return;
+  DataNode* node = hash_table[idx];
+  while (node) {
+    if (strcmp(node->key, key) == 0) {
+      printf(
+          "'%s' already exists at index: %u, please use data_modify to "
+          "update\n",
+          key, idx);
+      return;
+    }
+    node = node->hash_next;
   }
+
   DataNode* new_node = create_node(key, value);
   new_node->hash_next = hash_table[idx];
   hash_table[idx] = new_node;
