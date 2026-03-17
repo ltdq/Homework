@@ -22,5 +22,6 @@ int main(void) {
   data_get("Hello");
   data_delete("C");
   data_get("C");
+  data_exit();
   return 0;
 }

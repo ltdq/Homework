@@ -169,3 +169,21 @@ void data_load(const char* filename) {
   fclose(file);
   printf("Data loaded from %s\n", filename);
 }
+
+void data_exit() {
+  DataNode* node = head;
+  while (node) {
+    DataNode* next = node->next;
+    free(node->key);
+    free(node->value);
+    free(node);
+    node = next;
+  }
+  for (int i = 0; i < HASH_TABLE_SIZE; i++) {
+    hash_table[i] = NULL;
+  }
+  head = NULL;
+  tail = NULL;
+  printf("Data exited and memory freed\n");
+  exit(EXIT_SUCCESS);
+}
