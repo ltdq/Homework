@@ -9,8 +9,8 @@
 
 // 初始化哈希表和链表头尾指针
 DataNode* hash_table[HASH_TABLE_SIZE];
-DataNode* head = NULL;
-DataNode* tail = NULL;
+static DataNode* head = NULL;
+static DataNode* tail = NULL;
 
 // 创建新的数据节点
 static DataNode* create_node(const char* key, const char* value) {

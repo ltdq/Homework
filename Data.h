@@ -14,8 +14,6 @@ typedef struct DataNode {
 
 // 哈希表和链表头尾指针声明
 extern DataNode* hash_table[HASH_TABLE_SIZE];
-extern DataNode* head;
-extern DataNode* tail;
 
 // 数据操作函数声明
 void data_init();
