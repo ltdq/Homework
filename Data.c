@@ -128,3 +128,39 @@ void data_modify(const char* key, const char* new_value) {
   }
   printf("Key: '%s' not found for modification at index: %u\n", key, idx);
 }
+
+void data_save(const char* filename) {
+  FILE* file = fopen(filename, "w");
+  if (!file) {
+    perror("Failed to open file for saving");
+    return;
+  }
+  DataNode* node = head;
+  while (node) {
+    fprintf(file, "%s=%s\n", node->key, node->value);
+    node = node->next;
+  }
+  fclose(file);
+  printf("Data saved to %s\n", filename);
+}
+
+void data_load(const char* filename) {
+  FILE* file = fopen(filename, "r");
+  if (!file) {
+    perror("Failed to open file for loading");
+    return;
+  }
+  char line[256];
+  while (fgets(line, sizeof(line), file)) {
+    char* equals_pos = strchr(line, '=');
+    if (equals_pos) {
+      *equals_pos = '\0';
+      char* key = line;
+      char* value = equals_pos + 1;
+      value[strcspn(value, "\n")] = '\0';  // Remove newline
+      data_insert(key, value);
+    }
+  }
+  fclose(file);
+  printf("Data loaded from %s\n", filename);
+}

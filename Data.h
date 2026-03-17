@@ -23,5 +23,7 @@ void data_insert(const char* key, const char* value);
 char* data_get(const char* key);
 void data_delete(const char* key);
 void data_modify(const char* key, const char* new_value);
+void data_save(const char* filename);
+void data_load(const char* filename);
 
 #endif

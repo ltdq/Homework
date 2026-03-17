@@ -8,6 +8,10 @@ int main(void) {
   data_insert("C", "NB");
   data_get("Hello");
   data_get("C");
+  data_save("test.dat");
+  data_load("test.dat");
+  data_get("Hello");
+  data_get("C");
   data_insert("Hello", "Everyone");
   data_modify("Hello", "Everyone");
   data_get("Hello");
