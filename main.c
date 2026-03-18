@@ -15,9 +15,9 @@ int main(void) {
   data_get("20250318");
   data_get("20260318");
   // 测试数据保存
-  data_save("test.dat");
+  data_save("test.json");
   // 测试数据加载
-  data_load("test.dat");
+  data_load("test.json");
   // 测试数据加载后获取
   data_get("Hello");
   data_get("20250318");
