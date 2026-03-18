@@ -15,7 +15,8 @@ clean :
 	@echo "Clean complete: $(TARGET) and object files removed."
 run : all
 	./$(TARGET)
-Data.o: Data.c Data.h HashKey.h Hash.h
+yyjson.o: yyjson.c yyjson.h
+Data.o: Data.c Data.h HashKey.h Hash.h yyjson.h
 HashKey.o: HashKey.c HashKey.h
 main.o: main.c Data.h Hash.h
 .PHONY: all clean

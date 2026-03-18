@@ -6,6 +6,7 @@
 
 #include "Hash.h"
 #include "HashKey.h"
+#include "yyjson.h"
 
 // 初始化哈希表和链表头尾指针
 DataNode* hash_table_name[HASH_TABLE_SIZE];
@@ -186,38 +187,66 @@ void data_modify(const char* key, const char* new_value) {
 
 // 保存数据到文件
 void data_save(const char* filename) {
-  FILE* file = fopen(filename, "w");
-  if (!file) {
-    perror("Failed to open file for saving");
-    return;
-  }
-  DataNode* node = head;
+  yyjson_mut_doc* doc = yyjson_mut_doc_new(NULL);
+  yyjson_mut_val* root = yyjson_mut_arr(doc);
+  yyjson_mut_doc_set_root(doc, root);
+  DataNode* node = tail;
   while (node) {
-    fprintf(file, "%s,%s,%s\n", node->name, node->id, node->value);
-    node = node->next;
+    yyjson_mut_val* item = yyjson_mut_arr_add_obj(doc, root);
+    yyjson_mut_obj_add_str(doc, item, "name", node->name);
+    yyjson_mut_obj_add_str(doc, item, "id", node->id);
+    yyjson_mut_obj_add_str(doc, item, "value", node->value);
+    node = node->prev;
   }
-  fclose(file);
-  printf("Data saved to %s\n", filename);
+  int status = yyjson_mut_write_file(filename, doc, 0, NULL, NULL);
+  if (!status) {
+    printf("Failed to save data to %s\n", filename);
+  } else {
+    printf("Data saved to %s successfully\n", filename);
+  }
+  yyjson_mut_doc_free(doc);
 }
 
 // 从文件加载数据
 void data_load(const char* filename) {
-  FILE* file = fopen(filename, "r");
-  if (!file) {
-    perror("Failed to open file for loading");
+  yyjson_doc* doc = yyjson_read_file(filename, 0, NULL, NULL);
+  if (!doc) {
+    printf("Failed to load data from %s\n", filename);
     return;
   }
-  char line[256];
-  while (fgets(line, sizeof(line), file)) {
-    char* name = strtok(line, ",");
-    char* id = strtok(NULL, ",");
-    char* value = strtok(NULL, "\n");
-    if (name && id && value) {
-      data_insert(name, id, value);
+  yyjson_val* root = yyjson_doc_get_root(doc);
+  if (!yyjson_is_arr(root)) {
+    printf("Invalid data format in %s\n", filename);
+    yyjson_doc_free(doc);
+    return;
+  }
+  printf(
+      "Current data will be replaced with data from %s, are you sure? (y/N): ",
+      filename);
+  int choice = getchar();
+  int ch;
+  while ((ch = getchar()) != '\n' && ch != EOF) {
+  }
+  if (choice != 'y' && choice != 'Y') {
+    printf("Operation cancelled.\n");
+    yyjson_doc_free(doc);
+    return;
+  }
+  data_exit();
+  size_t idx, max;
+  yyjson_val* item;
+  yyjson_arr_foreach(root, idx, max, item) {
+    yyjson_val* name_val = yyjson_obj_get(item, "name");
+    yyjson_val* id_val = yyjson_obj_get(item, "id");
+    yyjson_val* value_val = yyjson_obj_get(item, "value");
+    if (yyjson_is_str(name_val) && yyjson_is_str(id_val) &&
+        yyjson_is_str(value_val)) {
+      data_insert(yyjson_get_str(name_val), yyjson_get_str(id_val),
+                  yyjson_get_str(value_val));
     }
   }
-  fclose(file);
   printf("Data loaded from %s\n", filename);
+  yyjson_doc_free(doc);
 }
 
 // 退出程序并释放内存
@@ -238,5 +267,4 @@ void data_exit() {
   head = NULL;
   tail = NULL;
   printf("Data exited and memory freed\n");
-  exit(EXIT_SUCCESS);
 }

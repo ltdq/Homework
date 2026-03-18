@@ -28,4 +28,8 @@ void data_save(const char* filename);
 void data_load(const char* filename);
 void data_exit();
 
+// Json操作函数声明
+void json_save(const char* filename, DataNode* node);
+void json_load(const char* filename, DataNode* head);
+
 #endif

@@ -43,7 +43,7 @@ int main(void) {
   data_delete("20260318");
   data_get("C");
   data_get("20260318");
-  // 退出程序并释放内存
+  // 释放内存
   data_exit();
   return 0;
 }
