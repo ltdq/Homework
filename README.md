@@ -13,4 +13,19 @@
 - [ ] 操作回退功能
 - [ ] 最近访问记录/预测最想访问（预计使用类似 ARC 的算法）
 
+## Third-Party Dependencies
+
+本项目使用了以下第三方开源组件：
+
+| Name | Purpose | Version | Upstream | License |
+|---|---|---|---|---|
+| yyjson | JSON 解析与序列化 | 0.12.0 | https://github.com/ibireme/yyjson | MIT |
+| rapidhash | 高性能哈希算法 | V3 | https://github.com/Nicoshev/rapidhash | MIT |
+
+### License Notice
+
+- `yyjson` 和 `rapidhash` 的版权与许可证归其原作者所有。
+- 本项目仅用于课程学习与实验，遵循各上游项目许可证要求。
+- 如需发布/分发，请保留上游 `LICENSE` 声明并在发布说明中标注第三方来源。
+
 ### WIP
