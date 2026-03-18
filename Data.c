@@ -8,28 +8,27 @@
 #include "HashKey.h"
 
 // 初始化哈希表和链表头尾指针
-DataNode* hash_table[HASH_TABLE_SIZE];
+DataNode* hash_table_name[HASH_TABLE_SIZE];
+DataNode* hash_table_id[HASH_TABLE_SIZE];
 static DataNode* head = NULL;
 static DataNode* tail = NULL;
 
 // 创建新的数据节点
-static DataNode* create_node(const char* key, const char* value) {
+static DataNode* create_node(const char* name, const char* id,
+                             const char* value) {
   DataNode* node = (DataNode*)malloc(sizeof(DataNode));
-  node->key = strdup(key);
+  node->name = strdup(name);
+  node->id = strdup(id);
   node->value = strdup(value);
-  node->hash_next = NULL;
+  node->hash_name_next = NULL;
+  node->hash_id_next = NULL;
   node->prev = NULL;
   node->next = NULL;
   return node;
 }
 
 // 删除数据节点并更新哈希表和链表指针
-static void delete_node(DataNode* node, unsigned int idx, DataNode* prev) {
-  if (prev) {
-    prev->hash_next = node->hash_next;
-  } else {
-    hash_table[idx] = node->hash_next;
-  }
+static void delete_node(DataNode* node) {
   if (node->prev) {
     node->prev->next = node->next;
   } else {
@@ -40,7 +39,36 @@ static void delete_node(DataNode* node, unsigned int idx, DataNode* prev) {
   } else {
     tail = node->prev;
   }
-  free(node->key);
+
+  unsigned int idx_name = hash_key(node->name);
+  unsigned int idx_id = hash_key(node->id);
+
+  if (hash_table_name[idx_name] == node) {
+    hash_table_name[idx_name] = node->hash_name_next;
+  } else {
+    DataNode* prev = hash_table_name[idx_name];
+    while (prev && prev->hash_name_next != node) {
+      prev = prev->hash_name_next;
+    }
+    if (prev) {
+      prev->hash_name_next = node->hash_name_next;
+    }
+  }
+
+  if (hash_table_id[idx_id] == node) {
+    hash_table_id[idx_id] = node->hash_id_next;
+  } else {
+    DataNode* prev = hash_table_id[idx_id];
+    while (prev && prev->hash_id_next != node) {
+      prev = prev->hash_id_next;
+    }
+    if (prev) {
+      prev->hash_id_next = node->hash_id_next;
+    }
+  }
+
+  free(node->name);
+  free(node->id);
   free(node->value);
   free(node);
 }
@@ -48,7 +76,8 @@ static void delete_node(DataNode* node, unsigned int idx, DataNode* prev) {
 // 初始化数据结构
 void data_init() {
   for (int i = 0; i < HASH_TABLE_SIZE; i++) {
-    hash_table[i] = NULL;
+    hash_table_name[i] = NULL;
+    hash_table_id[i] = NULL;
   }
   head = NULL;
   tail = NULL;
@@ -56,23 +85,25 @@ void data_init() {
 }
 
 // 插入数据
-void data_insert(const char* key, const char* value) {
-  unsigned int idx = hash_key(key);
-  DataNode* node = hash_table[idx];
+void data_insert(const char* name, const char* id, const char* value) {
+  unsigned int idx_name = hash_key(name);
+  unsigned int idx_id = hash_key(id);
+  DataNode* node = hash_table_name[idx_name];
   while (node) {
-    if (strcmp(node->key, key) == 0) {
+    if (strcmp(node->name, name) == 0 && strcmp(node->id, id) == 0) {
       printf(
-          "'%s' already exists at index: %u, please use data_modify to "
-          "update\n",
-          key, idx);
+          "Name: '%s' already exists at index: %u, should be modified instead "
+          "of inserted\n",
+          name, idx_name);
       return;
     }
-    node = node->hash_next;
+    node = node->hash_name_next;
   }
-
-  DataNode* new_node = create_node(key, value);
-  new_node->hash_next = hash_table[idx];
-  hash_table[idx] = new_node;
+  DataNode* new_node = create_node(name, id, value);
+  new_node->hash_name_next = hash_table_name[idx_name];
+  new_node->hash_id_next = hash_table_id[idx_id];
+  hash_table_name[idx_name] = new_node;
+  hash_table_id[idx_id] = new_node;
   if (head == NULL) {
     head = new_node;
     tail = new_node;
@@ -81,59 +112,79 @@ void data_insert(const char* key, const char* value) {
     head->prev = new_node;
     head = new_node;
   }
-  printf("Insert key: '%s', value: '%s' at index: %u\n", key, value, idx);
+  printf("Insert name: '%s', id: '%s', value: '%s' at index: %u\n", name, id,
+         value, idx_name);
 }
 
 // 获取数据
 char* data_get(const char* key) {
   unsigned int idx = hash_key(key);
-  DataNode* node = hash_table[idx];
+  DataNode* node = hash_table_name[idx];
   while (node) {
-    if (strcmp(node->key, key) == 0) {
+    if (strcmp(node->name, key) == 0) {
       printf("Key: '%s' found at index: %u, value: '%s'\n", key, idx,
              node->value);
       return node->value;
     }
-    node = node->hash_next;
+    node = node->hash_name_next;
+  }
+  node = hash_table_id[idx];
+  while (node) {
+    if (strcmp(node->id, key) == 0) {
+      printf("Key: '%s' found at index: %u, value: '%s'\n", key, idx,
+             node->value);
+      return node->value;
+    }
+    node = node->hash_id_next;
   }
   printf("Key: '%s' not found at index: %u\n", key, idx);
   return NULL;
 }
 
 // 删除数据
-void data_delete(const char* key) {
-  unsigned int idx = hash_key(key);
-  DataNode* node = hash_table[idx];
-  DataNode* prev = NULL;
+void data_delete(const char* id) {
+  unsigned int idx = hash_key(id);
+  DataNode* node = hash_table_id[idx];
   while (node) {
-    if (strcmp(node->key, key) == 0) {
-      delete_node(node, idx, prev);
-      printf("Key: '%s' deleted at index: %u\n", key, idx);
+    if (strcmp(node->id, id) == 0) {
+      delete_node(node);
+      printf("Key: '%s' deleted at index: %u\n", id, idx);
       return;
     }
-    prev = node;
-    node = node->hash_next;
+    node = node->hash_id_next;
   }
-  printf("Key: '%s' not found for deletion at index: %u\n", key, idx);
+  printf("Key: '%s' not found for deletion at index: %u\n", id, idx);
 }
 
 // 修改数据
 void data_modify(const char* key, const char* new_value) {
   unsigned int idx = hash_key(key);
-  DataNode* node = hash_table[idx];
+  DataNode* node = hash_table_name[idx];
   while (node) {
-    if (strcmp(node->key, key) == 0) {
+    if (strcmp(node->name, key) == 0) {
       free(node->value);
       node->value = strdup(new_value);
       printf("Key: '%s' modified at index: %u, new value: '%s'\n", key, idx,
              new_value);
       return;
     }
-    node = node->hash_next;
+    node = node->hash_name_next;
+  }
+  node = hash_table_id[idx];
+  while (node) {
+    if (strcmp(node->id, key) == 0) {
+      free(node->value);
+      node->value = strdup(new_value);
+      printf("Key: '%s' modified at index: %u, new value: '%s'\n", key, idx,
+             new_value);
+      return;
+    }
+    node = node->hash_id_next;
   }
   printf("Key: '%s' not found for modification at index: %u\n", key, idx);
 }
 
+// 保存数据到文件
 void data_save(const char* filename) {
   FILE* file = fopen(filename, "w");
   if (!file) {
@@ -142,13 +193,14 @@ void data_save(const char* filename) {
   }
   DataNode* node = head;
   while (node) {
-    fprintf(file, "%s=%s\n", node->key, node->value);
+    fprintf(file, "%s,%s,%s\n", node->name, node->id, node->value);
     node = node->next;
   }
   fclose(file);
   printf("Data saved to %s\n", filename);
 }
 
+// 从文件加载数据
 void data_load(const char* filename) {
   FILE* file = fopen(filename, "r");
   if (!file) {
@@ -157,30 +209,31 @@ void data_load(const char* filename) {
   }
   char line[256];
   while (fgets(line, sizeof(line), file)) {
-    char* equals_pos = strchr(line, '=');
-    if (equals_pos) {
-      *equals_pos = '\0';
-      char* key = line;
-      char* value = equals_pos + 1;
-      value[strcspn(value, "\n")] = '\0';  // Remove newline
-      data_insert(key, value);
+    char* name = strtok(line, ",");
+    char* id = strtok(NULL, ",");
+    char* value = strtok(NULL, "\n");
+    if (name && id && value) {
+      data_insert(name, id, value);
     }
   }
   fclose(file);
   printf("Data loaded from %s\n", filename);
 }
 
+// 退出程序并释放内存
 void data_exit() {
   DataNode* node = head;
   while (node) {
     DataNode* next = node->next;
-    free(node->key);
+    free(node->name);
+    free(node->id);
     free(node->value);
     free(node);
     node = next;
   }
   for (int i = 0; i < HASH_TABLE_SIZE; i++) {
-    hash_table[i] = NULL;
+    hash_table_name[i] = NULL;
+    hash_table_id[i] = NULL;
   }
   head = NULL;
   tail = NULL;
