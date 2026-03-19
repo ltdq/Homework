@@ -16,8 +16,9 @@ clean :
 run : all
 	./$(TARGET)
 yyjson.o: yyjson.c yyjson.h
-Data.o: Data.c Data.h HashKey.h Hash.h yyjson.h
-HashKey.o: HashKey.c HashKey.h
-main.o: main.c Data.h Hash.h
+Data.o: Data.c Data.h Hash.h List.h yyjson.h
+Hash.o: Hash.c Hash.h Data.h rapidhash.h
+List.o: List.c List.h Data.h
+main.o: main.c Data.h
 .PHONY: all clean
 

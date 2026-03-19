@@ -43,6 +43,8 @@ int main(void) {
   data_delete("20260318");
   data_get("C");
   data_get("20260318");
+  // 清空测试数据
+  data_save("test.json");
   // 释放内存
   data_exit();
   return 0;

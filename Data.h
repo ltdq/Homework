@@ -1,8 +1,6 @@
 #ifndef DATA_H
 #define DATA_H
 
-#include "Hash.h"
-
 // 数据节点结构体定义
 typedef struct DataNode {
   char* name;
