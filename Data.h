@@ -14,10 +14,6 @@ typedef struct DataNode {
   struct DataNode* next;
 } DataNode;
 
-// 哈希表和链表头尾指针声明
-extern DataNode* hash_table_name[HASH_TABLE_SIZE];
-extern DataNode* hash_table_id[HASH_TABLE_SIZE];
-
 // 数据操作函数声明
 void data_init();
 void data_insert(const char* name, const char* id, const char* value);
