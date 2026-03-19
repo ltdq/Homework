@@ -10,9 +10,6 @@ $(TARGET) : $(OBJS)
 	@echo "Build complete: $@"
 %.o : %.c
 	$(CC) $(CFLAGS) -c $< -o $@
-clean :
-	rm -f $(OBJS) $(TARGET)
-	@echo "Clean complete: $(TARGET) and object files removed."
 run : all
 	./$(TARGET)
 yyjson.o: yyjson.c yyjson.h
