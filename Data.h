@@ -13,13 +13,15 @@ typedef struct DataNode {
 } DataNode;
 
 // 数据操作函数声明
-void data_init();
-void data_insert(const char* name, const char* id, const char* value);
+void data_init(void);
+void data_insert(const char* name, const char* id, const char* value,
+                 int op_user);
 char* data_get(const char* key);
-void data_delete(const char* id);
-void data_modify(const char* key, const char* new_value);
+void data_delete(const char* id, int op_user);
+void data_modify(const char* key, const char* new_value, int op_user);
 void data_save(const char* filename);
 void data_load(const char* filename);
-void data_exit();
+void data_undo(void);
+void data_exit(void);
 
 #endif

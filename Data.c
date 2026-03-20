@@ -6,11 +6,12 @@
 
 #include "Hash.h"
 #include "List.h"
+#include "Stack.h"
 #include "yyjson.h"
 
 // 创建新的数据节点
-static DataNode* create_node(const char* name, const char* id,
-                             const char* value) {
+static DataNode* create_list_node(const char* name, const char* id,
+                                  const char* value) {
   DataNode* node = (DataNode*)malloc(sizeof(DataNode));
   node->name = strdup(name);
   node->id = strdup(id);
@@ -18,6 +19,19 @@ static DataNode* create_node(const char* name, const char* id,
   node->hash_name_next = NULL;
   node->hash_id_next = NULL;
   node->prev = NULL;
+  node->next = NULL;
+  return node;
+}
+
+static StackNode* create_stack_node(int type, const char* id, const char* name,
+                                    const char* value) {
+  StackNode* node = (StackNode*)malloc(sizeof(StackNode));
+  Operator op;
+  op.type = type;
+  op.id = strdup(id);
+  op.name = strdup(name);
+  op.value = strdup(value);
+  node->data = op;
   node->next = NULL;
   return node;
 }
@@ -36,11 +50,13 @@ static void delete_node(DataNode* node) {
 void data_init() {
   hash_init();
   list_init();
+  stack_init();
   printf("Hash Done, size: %d\n", HASH_TABLE_SIZE);
 }
 
 // 插入数据
-void data_insert(const char* name, const char* id, const char* value) {
+void data_insert(const char* name, const char* id, const char* value,
+                 int op_user) {
   unsigned int idx_name = hash_key(name);
   if (hash_find_exact(name, id)) {
     printf(
@@ -50,7 +66,11 @@ void data_insert(const char* name, const char* id, const char* value) {
     return;
   }
 
-  DataNode* new_node = create_node(name, id, value);
+  DataNode* new_node = create_list_node(name, id, value);
+  if (op_user) {
+    StackNode* op = create_stack_node(OP_INSERT, id, name, value);
+    stack_push(op);
+  }
   hash_add(new_node);
   list_push_front(new_node);
   printf("Insert name: '%s', id: '%s', value: '%s' at index: %u\n", name, id,
@@ -79,10 +99,14 @@ char* data_get(const char* key) {
 }
 
 // 删除数据
-void data_delete(const char* id) {
+void data_delete(const char* id, int op_user) {
   unsigned int idx = hash_key(id);
   DataNode* node = hash_find_by_id(id);
   if (node) {
+    if (op_user) {
+      StackNode* op = create_stack_node(OP_DELETE, id, node->name, node->value);
+      stack_push(op);
+    }
     delete_node(node);
     printf("Key: '%s' deleted at index: %u\n", id, idx);
     return;
@@ -91,10 +115,15 @@ void data_delete(const char* id) {
 }
 
 // 修改数据
-void data_modify(const char* key, const char* new_value) {
+void data_modify(const char* key, const char* new_value, int op_user) {
   unsigned int idx = hash_key(key);
   DataNode* node = hash_find_by_name(key);
   if (node) {
+    if (op_user) {
+      StackNode* op =
+          create_stack_node(OP_MODIFY_NAME, node->id, node->name, node->value);
+      stack_push(op);
+    }
     free(node->value);
     node->value = strdup(new_value);
     printf("Key: '%s' modified at index: %u, new value: '%s'\n", key, idx,
@@ -104,6 +133,11 @@ void data_modify(const char* key, const char* new_value) {
 
   node = hash_find_by_id(key);
   if (node) {
+    if (op_user) {
+      StackNode* op =
+          create_stack_node(OP_MODIFY_ID, node->id, node->name, node->value);
+      stack_push(op);
+    }
     free(node->value);
     node->value = strdup(new_value);
     printf("Key: '%s' modified at index: %u, new value: '%s'\n", key, idx,
@@ -171,11 +205,38 @@ void data_load(const char* filename) {
     if (yyjson_is_str(name_val) && yyjson_is_str(id_val) &&
         yyjson_is_str(value_val)) {
       data_insert(yyjson_get_str(name_val), yyjson_get_str(id_val),
-                  yyjson_get_str(value_val));
+                  yyjson_get_str(value_val), 0);
     }
   }
   printf("Data loaded from %s\n", filename);
   yyjson_doc_free(doc);
+}
+
+// 撤销上一次操作
+void data_undo() {
+  if (stack_is_empty()) {
+    printf("No operations to undo\n");
+    return;
+  }
+  StackNode* op = stack_get_top();
+  switch (op->data.type) {
+    case OP_INSERT:
+      data_delete(op->data.id, 0);
+      break;
+    case OP_DELETE:
+      data_insert(op->data.name, op->data.id, op->data.value, 0);
+      break;
+    case OP_MODIFY_ID:
+      data_modify(op->data.id, op->data.value, 0);
+      break;
+    case OP_MODIFY_NAME:
+      data_modify(op->data.name, op->data.value, 0);
+      break;
+    default:
+      printf("Unknown operation type: %d\n", op->data.type);
+      break;
+  }
+  stack_pop();
 }
 
 // 退出程序并释放内存
@@ -191,5 +252,6 @@ void data_exit() {
   }
   hash_init();
   list_init();
+  stack_init();
   printf("Data exited and memory freed\n");
 }

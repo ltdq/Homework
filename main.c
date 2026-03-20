@@ -6,8 +6,8 @@ int main(void) {
   // 初始化数据系统
   data_init();
   // 添加测试数据
-  data_insert("Hello", "20250318", "World");
-  data_insert("C", "20260318", "NB");
+  data_insert("Hello", "20250318", "World", 1);
+  data_insert("C", "20260318", "NB", 1);
   // 测试数据 name 获取
   data_get("Hello");
   data_get("C");
@@ -24,23 +24,23 @@ int main(void) {
   data_get("C");
   data_get("20260318");
   // 测试重复插入
-  data_insert("Hello", "20250318", "Everyone");
-  data_insert("C", "20260318", "Programming");
+  data_insert("Hello", "20250318", "Everyone", 1);
+  data_insert("C", "20260318", "Programming", 1);
   // 测试数据 name 修改
-  data_modify("Hello", "Everyone");
+  data_modify("Hello", "Everyone", 1);
   data_get("Hello");
-  data_modify("C", "Programming");
+  data_modify("C", "Programming", 1);
   data_get("C");
   // 测试数据 id 修改
-  data_modify("20250318", "id_test_Hello");
+  data_modify("20250318", "id_test_Hello", 1);
   data_get("Hello");
-  data_modify("20260318", "id_test_C");
+  data_modify("20260318", "id_test_C", 1);
   data_get("C");
   // 测试数据删除
-  data_delete("20250318");
+  data_delete("20250318", 1);
   data_get("Hello");
   data_get("20250318");
-  data_delete("20260318");
+  data_delete("20260318", 1);
   data_get("C");
   data_get("20260318");
   // 清空测试数据
