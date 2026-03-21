@@ -69,7 +69,7 @@ void data_init() {
   list_init();
   stack_init();
   file_modified = 0;
-  printf("Hash Done, size: %d\n", HASH_TABLE_SIZE);
+  printf("All data structures initialized\n");
 }
 
 // 插入数据
