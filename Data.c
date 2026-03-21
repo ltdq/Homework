@@ -7,6 +7,7 @@
 #include "Hash.h"
 #include "List.h"
 #include "Stack.h"
+#include "memory.h"
 #include "yyjson.h"
 
 extern int file_modified;
@@ -15,9 +16,19 @@ extern int file_modified;
 static DataNode* create_list_node(const char* name, const char* id,
                                   const char* value) {
   DataNode* node = (DataNode*)malloc(sizeof(DataNode));
+  memory_check(node);
   node->name = strdup(name);
+  memory_check(node->name);
   node->id = strdup(id);
+  memory_check(node->id);
+  if (!node->id) {
+    printf("Memory allocation failed for id\n");
+    free(node->name);
+    free(node);
+    exit(EXIT_FAILURE);
+  }
   node->value = strdup(value);
+  memory_check(node->value);
   node->hash_name_next = NULL;
   node->hash_id_next = NULL;
   node->prev = NULL;
@@ -28,11 +39,15 @@ static DataNode* create_list_node(const char* name, const char* id,
 static StackNode* create_stack_node(int type, const char* id, const char* name,
                                     const char* value) {
   StackNode* node = (StackNode*)malloc(sizeof(StackNode));
+  memory_check(node);
   Operator op;
   op.type = type;
   op.id = strdup(id);
+  memory_check(op.id);
   op.name = strdup(name);
+  memory_check(op.name);
   op.value = strdup(value);
+  memory_check(op.value);
   node->data = op;
   node->next = NULL;
   return node;
@@ -60,6 +75,10 @@ void data_init() {
 // 插入数据
 void data_insert(const char* name, const char* id, const char* value,
                  int op_user) {
+  if (name == NULL || id == NULL || value == NULL) {
+    printf("Invalid input parameters\n");
+    return;
+  }
   // 通过id，因为id是唯一的，name可能重复
   DataNode* existing_node = hash_find_by_id(id);
   while (existing_node) {
@@ -86,33 +105,44 @@ void data_insert(const char* name, const char* id, const char* value,
 
 // 获取数据
 void data_get(const char* key) {
+  if (key == NULL) {
+    printf("Key is NULL\n");
+    return;
+  }
   int is_already_printed = 0;
   DataNode* node = hash_find_by_name(key);
   // 可能存在多个同名的节点，所以需要遍历桶链表
   while (node) {
     if (strcmp(node->name, key) == 0) {
       printf("Key: '%s' found, value: '%s'\n", key, node->value);
+      list_push_visited(node);
       is_already_printed = 1;
     }
     node = node->hash_name_next;
   }
 
   // id是唯一的，所以直接返回第一个匹配的节点即可
-  node = hash_find_by_id(key);
-  while (node) {
-    if (strcmp(node->id, key) == 0) {
-      printf("Key: '%s' found, value: '%s'\n", key, node->value);
+  DataNode* node_id = hash_find_by_id(key);
+  while (node_id) {
+    if (strcmp(node_id->id, key) == 0 && is_visited(node_id) == 0) {
+      printf("Key: '%s' found, value: '%s'\n", key, node_id->value);
+      list_push_visited(node_id);
       return;
     }
-    node = node->hash_id_next;
+    node_id = node_id->hash_id_next;
   }
   if (!is_already_printed) {
     printf("Key: '%s' not found\n", key);
   }
+  list_clear_visited();
 }
 
 // 删除数据
 void data_delete(const char* id, int op_user) {
+  if (id == NULL) {
+    printf("Key is NULL\n");
+    return;
+  }
   DataNode* node = hash_find_by_id(id);
   while (node) {
     if (strcmp(node->id, id) == 0) {
@@ -133,6 +163,10 @@ void data_delete(const char* id, int op_user) {
 
 // 修改数据
 void data_modify(const char* key, const char* new_value, int op_user) {
+  if (key == NULL || new_value == NULL) {
+    printf("Invalid input parameters\n");
+    return;
+  }
   DataNode* node = hash_find_by_name(key);
   // 判断的节点
   if (node) {
@@ -189,6 +223,7 @@ void data_modify(const char* key, const char* new_value, int op_user) {
     }
     free(node->value);
     node->value = strdup(new_value);
+    memory_check(node->value);
     file_modified = 1;
     printf("Key: '%s' modified, new value: '%s'\n", key, new_value);
     return;

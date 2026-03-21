@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -O3
+CFLAGS = -Wall -Wextra -std=c23 -O3
 LDFLAGS =
 TARGET = test
 SRCS = $(wildcard *.c)
@@ -13,7 +13,8 @@ $(TARGET) : $(OBJS)
 run : all
 	./$(TARGET)
 yyjson.o: yyjson.c yyjson.h
-Data.o: Data.c Data.h Hash.h List.h yyjson.h
+Data.o: Data.c Data.h Hash.h List.h Stack.h memory.h yyjson.h
+Memory.o: Memory.c memory.h
 Hash.o: Hash.c Hash.h Data.h rapidhash.h
 List.o: List.c List.h Data.h
 main.o: main.c Data.h
