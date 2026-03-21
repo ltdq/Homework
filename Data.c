@@ -9,6 +9,8 @@
 #include "Stack.h"
 #include "yyjson.h"
 
+extern int file_modified;
+
 // 创建新的数据节点
 static DataNode* create_list_node(const char* name, const char* id,
                                   const char* value) {
@@ -51,101 +53,168 @@ void data_init() {
   hash_init();
   list_init();
   stack_init();
+  file_modified = 0;
   printf("Hash Done, size: %d\n", HASH_TABLE_SIZE);
 }
 
 // 插入数据
 void data_insert(const char* name, const char* id, const char* value,
                  int op_user) {
-  unsigned int idx_name = hash_key(name);
-  if (hash_find_exact(name, id)) {
-    printf(
-        "Name: '%s' already exists at index: %u, should be modified instead "
-        "of inserted\n",
-        name, idx_name);
-    return;
+  // 通过id，因为id是唯一的，name可能重复
+  DataNode* existing_node = hash_find_by_id(id);
+  while (existing_node) {
+    if (strcmp(existing_node->id, id) == 0) {
+      printf("Key: '%s' already exists, please use a unique id\n", id);
+      return;
+    }
+    existing_node = existing_node->hash_id_next;
   }
 
   DataNode* new_node = create_list_node(name, id, value);
   if (op_user) {
     StackNode* op = create_stack_node(OP_INSERT, id, name, value);
     stack_push(op);
+    printf(
+        "Operation pushed to stack: Insert name: '%s', id: '%s', value: '%s'\n",
+        name, id, value);
   }
   hash_add(new_node);
   list_push_front(new_node);
-  printf("Insert name: '%s', id: '%s', value: '%s' at index: %u\n", name, id,
-         value, idx_name);
+  file_modified = 1;
+  printf("Insert name: '%s', id: '%s', value: '%s'\n", name, id, value);
 }
 
 // 获取数据
-char* data_get(const char* key) {
-  unsigned int idx = hash_key(key);
+void data_get(const char* key) {
+  int is_already_printed = 0;
   DataNode* node = hash_find_by_name(key);
-  if (node) {
-    printf("Key: '%s' found at index: %u, value: '%s'\n", key, idx,
-           node->value);
-    return node->value;
+  // 可能存在多个同名的节点，所以需要遍历桶链表
+  while (node) {
+    if (strcmp(node->name, key) == 0) {
+      printf("Key: '%s' found, value: '%s'\n", key, node->value);
+      is_already_printed = 1;
+    }
+    node = node->hash_name_next;
   }
 
+  // id是唯一的，所以直接返回第一个匹配的节点即可
   node = hash_find_by_id(key);
-  if (node) {
-    printf("Key: '%s' found at index: %u, value: '%s'\n", key, idx,
-           node->value);
-    return node->value;
+  while (node) {
+    if (strcmp(node->id, key) == 0) {
+      printf("Key: '%s' found, value: '%s'\n", key, node->value);
+      return;
+    }
+    node = node->hash_id_next;
   }
-
-  printf("Key: '%s' not found at index: %u\n", key, idx);
-  return NULL;
+  if (!is_already_printed) {
+    printf("Key: '%s' not found\n", key);
+  }
 }
 
 // 删除数据
 void data_delete(const char* id, int op_user) {
-  unsigned int idx = hash_key(id);
   DataNode* node = hash_find_by_id(id);
-  if (node) {
-    if (op_user) {
-      StackNode* op = create_stack_node(OP_DELETE, id, node->name, node->value);
-      stack_push(op);
+  while (node) {
+    if (strcmp(node->id, id) == 0) {
+      if (op_user) {
+        StackNode* op =
+            create_stack_node(OP_DELETE, id, node->name, node->value);
+        stack_push(op);
+      }
+      delete_node(node);
+      file_modified = 1;
+      printf("Key: '%s' deleted\n", id);
+      return;
     }
-    delete_node(node);
-    printf("Key: '%s' deleted at index: %u\n", id, idx);
-    return;
+    node = node->hash_id_next;
   }
-  printf("Key: '%s' not found for deletion at index: %u\n", id, idx);
+  printf("Key: '%s' not found for deletion\n", id);
 }
 
 // 修改数据
 void data_modify(const char* key, const char* new_value, int op_user) {
-  unsigned int idx = hash_key(key);
   DataNode* node = hash_find_by_name(key);
+  // 判断的节点
+  if (node) {
+    int count = 0;
+    while (node) {
+      if (strcmp(node->name, key) == 0) {
+        // 对重名节点进行计数
+        count++;
+      }
+      node = node->hash_name_next;
+    }
+    // 如果存在多个同名节点，提示用户使用id进行修改
+    if (count > 1) {
+      printf(
+          "Multiple entries found with name: '%s'. Please use id to modify the "
+          "specific entry.\n",
+          key);
+      return;
+    } else if (count == 1) {
+      // 如果只有一个同名节点，直接修改
+      node = hash_find_by_name(key);
+      while (node) {
+        if (strcmp(node->name, key) == 0) {
+          break;
+        }
+        node = node->hash_name_next;
+      }
+    } else {
+      // 如果没有正确name（仅 Hash 冲突）的节点，再尝试通过id查找
+      node = hash_find_by_id(key);
+      while (node) {
+        if (strcmp(node->id, key) == 0) {
+          break;
+        }
+        node = node->hash_id_next;
+      }
+    }
+  } else {
+    // 如果没有name的节点，再尝试通过id查找
+    node = hash_find_by_id(key);
+    while (node) {
+      if (strcmp(node->id, key) == 0) {
+        break;
+      }
+      node = node->hash_id_next;
+    }
+  }
+  // 如果找到了节点，进行修改
   if (node) {
     if (op_user) {
       StackNode* op =
-          create_stack_node(OP_MODIFY_NAME, node->id, node->name, node->value);
+          create_stack_node(OP_MODIFY, node->id, node->name, node->value);
       stack_push(op);
     }
     free(node->value);
     node->value = strdup(new_value);
-    printf("Key: '%s' modified at index: %u, new value: '%s'\n", key, idx,
-           new_value);
+    file_modified = 1;
+    printf("Key: '%s' modified, new value: '%s'\n", key, new_value);
     return;
   }
+  printf("Key: '%s' not found for modification\n", key);
+}
 
-  node = hash_find_by_id(key);
-  if (node) {
-    if (op_user) {
-      StackNode* op =
-          create_stack_node(OP_MODIFY_ID, node->id, node->name, node->value);
-      stack_push(op);
-    }
-    free(node->value);
-    node->value = strdup(new_value);
-    printf("Key: '%s' modified at index: %u, new value: '%s'\n", key, idx,
-           new_value);
+// 创建新的数据文件
+void data_new(const char* filename) {
+  if (file_modified) {
+    printf(
+        "Data already been modified, please save data before creating new "
+        "data\n");
     return;
   }
-
-  printf("Key: '%s' not found for modification at index: %u\n", key, idx);
+  yyjson_mut_doc* doc = yyjson_mut_doc_new(NULL);
+  yyjson_mut_val* root = yyjson_mut_arr(doc);
+  yyjson_mut_doc_set_root(doc, root);
+  int status = yyjson_mut_write_file(filename, doc, 0, NULL, NULL);
+  if (!status) {
+    printf("Failed to create data file %s\n", filename);
+  } else {
+    printf("Data file created successfully: %s\n", filename);
+    data_load(filename);
+  }
+  yyjson_mut_doc_free(doc);
 }
 
 // 保存数据到文件
@@ -165,6 +234,7 @@ void data_save(const char* filename) {
   if (!status) {
     printf("Failed to save data to %s\n", filename);
   } else {
+    file_modified = 0;
     printf("Data saved to %s successfully\n", filename);
   }
   yyjson_mut_doc_free(doc);
@@ -172,6 +242,14 @@ void data_save(const char* filename) {
 
 // 从文件加载数据
 void data_load(const char* filename) {
+  if (file_modified) {
+    printf(
+        "Data already been modified, please save data before loading "
+        "again\n");
+    return;
+  } else if (list_head()) {
+    printf("Current data is not empty but saved, will be replaced\n");
+  }
   yyjson_doc* doc = yyjson_read_file(filename, 0, NULL, NULL);
   if (!doc) {
     printf("Failed to load data from %s\n", filename);
@@ -183,19 +261,8 @@ void data_load(const char* filename) {
     yyjson_doc_free(doc);
     return;
   }
-  printf(
-      "Current data will be replaced with data from %s, are you sure? (y/N): ",
-      filename);
-  int choice = getchar();
-  int ch;
-  while ((ch = getchar()) != '\n' && ch != EOF) {
-  }
-  if (choice != 'y' && choice != 'Y') {
-    printf("Operation cancelled.\n");
-    yyjson_doc_free(doc);
-    return;
-  }
-  data_exit();
+  // 加载数据前先清空当前数据
+  data_init();
   size_t idx, max;
   yyjson_val* item;
   yyjson_arr_foreach(root, idx, max, item) {
@@ -210,6 +277,7 @@ void data_load(const char* filename) {
   }
   printf("Data loaded from %s\n", filename);
   yyjson_doc_free(doc);
+  file_modified = 0;
 }
 
 // 撤销上一次操作
@@ -226,32 +294,13 @@ void data_undo() {
     case OP_DELETE:
       data_insert(op->data.name, op->data.id, op->data.value, 0);
       break;
-    case OP_MODIFY_ID:
+    case OP_MODIFY:
+      // 这里直接通过id进行修改，因为id是唯一的
       data_modify(op->data.id, op->data.value, 0);
-      break;
-    case OP_MODIFY_NAME:
-      data_modify(op->data.name, op->data.value, 0);
       break;
     default:
       printf("Unknown operation type: %d\n", op->data.type);
       break;
   }
   stack_pop();
-}
-
-// 退出程序并释放内存
-void data_exit() {
-  DataNode* node = list_head();
-  while (node) {
-    DataNode* next = node->next;
-    free(node->name);
-    free(node->id);
-    free(node->value);
-    free(node);
-    node = next;
-  }
-  hash_init();
-  list_init();
-  stack_init();
-  printf("Data exited and memory freed\n");
 }

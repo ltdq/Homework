@@ -2,9 +2,13 @@
 
 #include "Data.h"
 
+int file_modified = 0;
+
 int main(void) {
   // 初始化数据系统
   data_init();
+  // 创建新的数据文件
+  data_new("test.json");
   // 添加测试数据
   data_insert("Hello", "20250318", "World", 1);
   data_insert("C", "20260318", "NB", 1);
@@ -14,6 +18,8 @@ int main(void) {
   // 测试数据 id 获取
   data_get("20250318");
   data_get("20260318");
+  // 测试未保存数据加载
+  data_load("test.json");
   // 测试数据保存
   data_save("test.json");
   // 测试数据加载
@@ -46,6 +52,6 @@ int main(void) {
   // 清空测试数据
   data_save("test.json");
   // 释放内存
-  data_exit();
+  data_init();
   return 0;
 }

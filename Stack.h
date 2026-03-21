@@ -4,8 +4,7 @@
 enum {
   OP_INSERT = 1,
   OP_DELETE = 2,
-  OP_MODIFY_ID = 3,
-  OP_MODIFY_NAME = 4,
+  OP_MODIFY = 3,
 };
 
 enum {
@@ -14,7 +13,7 @@ enum {
 };
 
 typedef struct Operator {
-  int type;  // 1 增加 2 删除 3 修改 id 4 修改 name
+  int type;  // 1 增加 2 删除 3 修改
   char* id;
   char* name;
   char* value;

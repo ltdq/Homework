@@ -11,7 +11,7 @@ static DataNode* hash_table_name[HASH_TABLE_SIZE];
 static DataNode* hash_table_id[HASH_TABLE_SIZE];
 
 // 计算哈希值并返回索引
-unsigned int hash_key(const char* key) {
+static unsigned int hash_key(const char* key) {
   uint64_t hash = rapidhash(key, strlen(key));
   return (unsigned int)(hash % HASH_TABLE_SIZE);
 }
@@ -34,43 +34,18 @@ void hash_add(DataNode* node) {
   hash_table_id[idx_id] = node;
 }
 
-// 查找数据节点(通过name或id)
-DataNode* hash_find_exact(const char* name, const char* id) {
-  unsigned int idx_name = hash_key(name);
-  DataNode* node = hash_table_name[idx_name];
-  while (node) {
-    if (strcmp(node->name, name) == 0 && strcmp(node->id, id) == 0) {
-      return node;
-    }
-    node = node->hash_name_next;
-  }
-  return NULL;
-}
-
 // 查找数据节点(通过name)
 DataNode* hash_find_by_name(const char* name) {
   unsigned int idx = hash_key(name);
   DataNode* node = hash_table_name[idx];
-  while (node) {
-    if (strcmp(node->name, name) == 0) {
-      return node;
-    }
-    node = node->hash_name_next;
-  }
-  return NULL;
+  return (node == NULL ? NULL : node);
 }
 
 // 查找数据节点(通过id)
 DataNode* hash_find_by_id(const char* id) {
   unsigned int idx = hash_key(id);
   DataNode* node = hash_table_id[idx];
-  while (node) {
-    if (strcmp(node->id, id) == 0) {
-      return node;
-    }
-    node = node->hash_id_next;
-  }
-  return NULL;
+  return (node == NULL ? NULL : node);
 }
 
 // 删除数据节点并更新哈希表和链表指针

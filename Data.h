@@ -16,12 +16,12 @@ typedef struct DataNode {
 void data_init(void);
 void data_insert(const char* name, const char* id, const char* value,
                  int op_user);
-char* data_get(const char* key);
+void data_get(const char* key);
 void data_delete(const char* id, int op_user);
 void data_modify(const char* key, const char* new_value, int op_user);
+void data_new(const char* filename);
 void data_save(const char* filename);
 void data_load(const char* filename);
 void data_undo(void);
-void data_exit(void);
 
 #endif

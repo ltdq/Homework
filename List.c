@@ -1,6 +1,7 @@
 #include "List.h"
 
 #include <stddef.h>
+#include <stdlib.h>
 
 #include "Data.h"
 
@@ -9,6 +10,14 @@ static DataNode* tail = NULL;
 
 // 初始化链表
 void list_init(void) {
+  while (head) {
+    DataNode* next = head->next;
+    free(head->name);
+    free(head->id);
+    free(head->value);
+    free(head);
+    head = next;
+  }
   head = NULL;
   tail = NULL;
 }
