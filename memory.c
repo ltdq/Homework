@@ -5,7 +5,7 @@
 
 void memory_check(void* ptr) {
   if (!ptr) {
-    printf("Memory allocation failed\n");
+    printf("内存分配失败\n");
     exit(EXIT_FAILURE);
   }
 }

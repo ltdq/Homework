@@ -13,6 +13,11 @@ void stack_push(StackNode* node) {
   }
   node->next = top;
   top = node;
+  printf("操作入栈: %s，原数据为：名字：'%s', ID：'%s', 值：'%s'\n",
+         node->data.type == OP_INSERT   ? "插入"
+         : node->data.type == OP_DELETE ? "删除"
+                                        : "修改",
+         node->data.name, node->data.id, node->data.value);
 }
 
 // 获取栈顶元素
