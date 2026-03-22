@@ -1,14 +1,11 @@
 #include "List.h"
 
-#include <stddef.h>
 #include <stdlib.h>
 
 #include "Data.h"
 
 static DataNode* head = NULL;
 static DataNode* tail = NULL;
-
-// 已访问节点链表头指针
 static DataNode* visited_head = NULL;
 
 // 初始化链表

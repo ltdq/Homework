@@ -3,11 +3,6 @@
 
 typedef struct DataNode DataNode;
 
-typedef struct ListNode {
-  DataNode* data;
-  struct ListNode* next;
-} ListNode;
-
 // 链表操作函数声明
 void list_init(void);
 void list_push_front(DataNode* node);
