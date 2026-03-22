@@ -1,22 +1,23 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c23 -O3
 LDFLAGS =
-TARGET = test
+TARGET = student_system
 SRCS = $(wildcard *.c)
 OBJS = $(SRCS:.c=.o)
-all : $(TARGET)
-$(TARGET) : $(OBJS)
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 	@echo "Build complete: $@"
-%.o : %.c
+
+%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
-run : all
-	./$(TARGET)
-yyjson.o: yyjson.c yyjson.h
-Data.o: Data.c Data.h Hash.h List.h Stack.h memory.h yyjson.h
-Memory.o: Memory.c memory.h
-Hash.o: Hash.c Hash.h Data.h rapidhash.h
-List.o: List.c List.h Data.h
-main.o: main.c Data.h
+
+run: all
+	./$(TARGET).exe
+
 .PHONY: all clean
 
+clean:
+	rm -f *.o *.exe
