@@ -10,6 +10,7 @@ typedef struct DataNode {
   struct DataNode* hash_id_next;
   struct DataNode* prev;
   struct DataNode* next;
+  struct DataNode* visited_next;
 } DataNode;
 
 // 数据操作函数声明

@@ -59,7 +59,7 @@ DataNode* list_tail(void) { return tail; }
 
 // 将已访问节点添加到链表中
 void list_push_visited(DataNode* node) {
-  node->next = visited_head;
+  node->visited_next = visited_head;
   visited_head = node;
 }
 
@@ -70,16 +70,10 @@ int is_visited(DataNode* node) {
     if (current == node) {
       return 1;
     }
-    current = current->next;
+    current = current->visited_next;
   }
   return 0;
 }
 
 // 清空已访问节点链表
-void list_clear_visited(void) {
-  while (visited_head) {
-    DataNode* next = visited_head->next;
-    visited_head = next;
-  }
-  visited_head = NULL;
-}
+void list_clear_visited(void) { visited_head = NULL; }
