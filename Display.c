@@ -1,4 +1,4 @@
-﻿#include "Display.h"
+#include "Display.h"
 
 #include <conio.h>
 #include <locale.h>
@@ -48,7 +48,7 @@ typedef struct {
   UIState state;
   int selected_menu;
   int file_loaded;
-  char filename[256];
+  char filename[512];
 
   // 输入缓冲区
   char input_buf[512];
@@ -56,9 +56,9 @@ typedef struct {
   int input_cursor;
 
   // 临时存储（多步骤输入）
-  char temp_name[256];
-  char temp_id[256];
-  char temp_value[256];
+  char temp_name[512];
+  char temp_id[512];
+  char temp_value[512];
   int input_step;
 
   // 弹窗
@@ -111,14 +111,9 @@ void display_clear_content(void) {
 
 // ========== 辅助函数 ==========
 
-// 安全复制字符串并添加终止符
-static void safe_strcpy(char* dest, const char* src, size_t dest_size) {
-  snprintf(dest, dest_size, "%s", src);
-}
-
 // 设置文件名并切换到菜单状态
 static void set_filename_and_state(const char* filename) {
-  safe_strcpy(ctx.filename, filename, sizeof(ctx.filename));
+  snprintf(ctx.filename, sizeof(ctx.filename), "%s", filename);
   ctx.file_loaded = 1;
   ctx.state = STATE_MENU;
 }
@@ -146,19 +141,19 @@ static void move_cursor(int y, int x) { printf("\033[%d;%dH", y, x); }
 static void print_center(int y, const char* text) {
   int len = 0;
   // 计算显示宽度（跳过ANSI转义序列，中文算2）
-  for (const char* p = text; *p; p++) {
+  for (const char* p = text; *p; ++p) {
     unsigned char c = (unsigned char)*p;
     // 跳过ANSI转义序列: \033[...m
     if (c == '\033' && *(p + 1) == '[') {
       p += 2;
-      while (*p && *p != 'm') p++;
+      while (*p && *p != 'm') ++p;
       continue;
     }
     if (c < 0x80)
-      len++;
+      ++len;
     else if ((c & 0xE0) == 0xC0) {
       len += 1;
-      p++;
+      ++p;
     } else if ((c & 0xF0) == 0xE0) {
       len += 2;
       p += 2;
@@ -166,7 +161,7 @@ static void print_center(int y, const char* text) {
       len += 2;
       p += 3;
     } else
-      len++;
+      ++len;
   }
   int x = (ctx.term_width - len) / 2;
   if (x < 1) x = 1;
@@ -177,7 +172,7 @@ static void print_center(int y, const char* text) {
 // 打印重复字符串
 static void print_repeat_str(int y, int x, const char* str, int count) {
   move_cursor(y, x);
-  for (int i = 0; i < count; i++) printf("%s", str);
+  for (int i = 0; i < count; ++i) printf("%s", str);
 }
 
 // 绘制标题 - 3D 立体艺术字
@@ -201,13 +196,13 @@ static void draw_title(void) {
   int y = 2;
 
   // 阴影
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 6; ++i) {
     move_cursor(y + i + 1, (ctx.term_width - art_width) / 2 + 2);
     printf(DIM DARKGRAY "%s" RESET, art[i]);
   }
 
   // 主标题
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 6; ++i) {
     move_cursor(y + i, (ctx.term_width - art_width) / 2);
     printf(BOLD PRIMARY "%s" RESET, art[i]);
   }
@@ -224,7 +219,7 @@ static void draw_menu(void) {
   int start_x = (ctx.term_width - total_width) / 2;
   if (start_x < 2) start_x = 2;
 
-  for (int i = 0; i < MENU_COUNT; i++) {
+  for (int i = 0; i < MENU_COUNT; ++i) {
     int row = i / 3;
     int col = i % 3;
     int x = start_x + col * menu_width;
@@ -255,7 +250,7 @@ static void draw_input_area(void) {
   printf(RESET);
 
   // 中间两行
-  for (int row = 0; row < 2; row++) {
+  for (int row = 0; row < 2; ++row) {
     move_cursor(y + 1 + row, left);
     printf(SECONDARY "│" RESET " ");
 
@@ -323,7 +318,7 @@ static void draw_log_area(void) {
   int count = log_get_line_count();
   int start = count > 2 ? count - 2 : 0;
 
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < 2; ++i) {
     int idx = start + i;
     move_cursor(y + 1 + i, 3);
     printf(GRAY "%s" RESET, idx < count ? log_get_line(idx) : "");
@@ -339,7 +334,7 @@ static void draw_footer(void) {
   printf(BG_PRIMARY);
 
   // 填满整行
-  for (int i = 0; i < ctx.term_width; i++) putchar(' ');
+  for (int i = 0; i < ctx.term_width; ++i) putchar(' ');
 
   // 重新定位写内容
   move_cursor(y, 1);
@@ -371,10 +366,10 @@ static void draw_popup(void) {
   int py = (ctx.term_height - ph) / 2;
 
   // 背景
-  for (int i = 0; i < ph; i++) {
+  for (int i = 0; i < ph; ++i) {
     move_cursor(py + i, px);
     printf(BG_PRIMARY);
-    for (int j = 0; j < pw; j++) putchar(' ');
+    for (int j = 0; j < pw; ++j) putchar(' ');
   }
 
   // 边框
@@ -397,7 +392,7 @@ static void draw_popup(void) {
     if (len > pw - 4) len = pw - 4;
     move_cursor(py + 2 + line, px + 2);
     printf(BG_PRIMARY WHITE "%.*s", len, p);
-    line++;
+    ++line;
     if (*end == '\n')
       p = end + 1;
     else
@@ -408,7 +403,7 @@ static void draw_popup(void) {
   printf(BG_PRIMARY WARNING "按任意键继续..." RESET);
 
   move_cursor(py + ph - 1, px);
-  printf(BG_PRIMARY BOLD WHITE);
+  printf(BG_PRIMARY BOLD WHITE "└");
   print_repeat_str(py + ph - 1, px + 1, "─", pw - 2);
   printf("┘" RESET);
 }
@@ -454,10 +449,10 @@ static void handle_char(int ch) {
       case 77:  // 右
         if (ctx.input_cursor < ctx.input_len) {
           // 移动到下一个 UTF-8 字符的开头
-          ctx.input_cursor++;
+          ++ctx.input_cursor;
           while (ctx.input_cursor < ctx.input_len &&
                  (ctx.input_buf[ctx.input_cursor] & 0xC0) == 0x80) {
-            ctx.input_cursor++;
+            ++ctx.input_cursor;
           }
         }
         break;
@@ -514,12 +509,14 @@ static void handle_char(int ch) {
         ctx.input_buf[ctx.input_cursor++] = ch;
 
         // 如果是多字节字符，读取后续字节
-        for (int i = 1; i < utf8_len; i++) {
+        for (int i = 1; i < utf8_len; ++i) {
           int next = _getch();
           if (next == EOF || (next & 0xC0) != 0x80) {
-            // 无效的后续字节，回滚
+            // 无效的后续字节，回滚：恢复 cursor 并把移走的内容挪回
             ctx.input_cursor--;
-            ctx.input_len -= i - 1;
+            memmove(ctx.input_buf + ctx.input_cursor,
+                    ctx.input_buf + ctx.input_cursor + 1,
+                    ctx.input_len - ctx.input_cursor + 1);
             return;
           }
           ctx.input_buf[ctx.input_cursor++] = next;
@@ -550,15 +547,15 @@ static void process_input(void) {
   switch (ctx.selected_menu) {
     case MENU_INSERT:
       if (ctx.input_step == 0) {
-        safe_strcpy(ctx.temp_name, ctx.input_buf, sizeof(ctx.temp_name));
+        snprintf(ctx.temp_name, sizeof(ctx.temp_name), "%s", ctx.input_buf);
         ctx.input_step = 1;
         reset_input();
       } else if (ctx.input_step == 1) {
-        safe_strcpy(ctx.temp_id, ctx.input_buf, sizeof(ctx.temp_id));
+        snprintf(ctx.temp_id, sizeof(ctx.temp_id), "%s", ctx.input_buf);
         ctx.input_step = 2;
         reset_input();
       } else {
-        safe_strcpy(ctx.temp_value, ctx.input_buf, sizeof(ctx.temp_value));
+        snprintf(ctx.temp_value, sizeof(ctx.temp_value), "%s", ctx.input_buf);
         data_insert(ctx.temp_name, ctx.temp_id, ctx.temp_value, 1);
         ctx.state = STATE_MENU;
         ctx.input_step = 0;
@@ -576,7 +573,7 @@ static void process_input(void) {
       break;
     case MENU_MODIFY:
       if (ctx.input_step == 0) {
-        safe_strcpy(ctx.temp_name, ctx.input_buf, sizeof(ctx.temp_name));
+        snprintf(ctx.temp_name, sizeof(ctx.temp_name), "%s", ctx.input_buf);
         ctx.input_step = 1;
         reset_input();
       } else {

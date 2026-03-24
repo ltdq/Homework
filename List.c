@@ -24,7 +24,7 @@ void list_init(void) {
 
 // 将节点添加到链表头部
 void list_push_front(DataNode* node) {
-  if (head == NULL) {
+  if (!head) {
     head = node;
     tail = node;
     return;
@@ -61,7 +61,7 @@ void list_push_visited(DataNode* node) {
 }
 
 // 检查节点是否已访问
-int is_visited(DataNode* node) {
+int list_is_visited(DataNode* node) {
   DataNode* current = visited_head;
   while (current) {
     if (current == node) {

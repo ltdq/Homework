@@ -74,7 +74,7 @@ void data_init(void) {
 // 插入数据
 void data_insert(const char* name, const char* id, const char* value,
                  int op_user) {
-  if (name == NULL || id == NULL || value == NULL) {
+  if (!name || !id || !value) {
     log_print("输入参数无效");
     return;
   }
@@ -101,7 +101,7 @@ void data_insert(const char* name, const char* id, const char* value,
 
 // 获取数据
 void data_get(const char* key) {
-  if (key == NULL) {
+  if (!key) {
     log_print("输入内容非法");
     return;
   }
@@ -121,7 +121,7 @@ void data_get(const char* key) {
   // id是唯一的，所以直接返回第一个匹配的节点即可
   DataNode* node_id = hash_find_by_id(key);
   while (node_id) {
-    if (strcmp(node_id->id, key) == 0 && is_visited(node_id) == 0) {
+    if (strcmp(node_id->id, key) == 0 && !list_is_visited(node_id)) {
       display_content_print("姓名: %s\nID: %s\n值: %s\n\n", node_id->name,
                             node_id->id, node_id->value);
       list_push_visited(node_id);
@@ -138,7 +138,7 @@ void data_get(const char* key) {
 
 // 删除数据
 void data_delete(const char* id, int op_user) {
-  if (id == NULL) {
+  if (!id) {
     log_print("输入内容非法");
     return;
   }
@@ -162,55 +162,38 @@ void data_delete(const char* id, int op_user) {
 
 // 修改数据
 void data_modify(const char* key, const char* new_value, int op_user) {
-  if (key == NULL || new_value == NULL) {
+  if (!key || !new_value) {
     log_print("输入内容非法");
     return;
   }
-  DataNode* node = hash_find_by_name(key);
-  // 判断的节点
-  if (node) {
-    int count = 0;
-    while (node) {
-      if (strcmp(node->name, key) == 0) {
-        // 对重名节点进行计数
-        count++;
-      }
-      node = node->hash_name_next;
+
+  DataNode* node = NULL;
+
+  // 先按名字查找
+  DataNode* cur = hash_find_by_name(key);
+  int name_count = 0;
+  while (cur) {
+    if (strcmp(cur->name, key) == 0) {
+      node = cur;
+      ++name_count;
     }
-    // 如果存在多个同名节点，提示用户使用id进行修改
-    if (count > 1) {
-      log_print("'%s' 存在多个条目。请使用ID来修改特定的条目。", key);
-      return;
-    } else if (count == 1) {
-      // 如果只有一个同名节点，直接修改
-      node = hash_find_by_name(key);
-      while (node) {
-        if (strcmp(node->name, key) == 0) {
-          break;
-        }
-        node = node->hash_name_next;
-      }
-    } else {
-      // 如果没有正确name（仅 Hash 冲突）的节点，再尝试通过id查找
-      node = hash_find_by_id(key);
-      while (node) {
-        if (strcmp(node->id, key) == 0) {
-          break;
-        }
-        node = node->hash_id_next;
-      }
-    }
-  } else {
-    // 如果没有name的节点，再尝试通过id查找
+    cur = cur->hash_name_next;
+  }
+
+  if (name_count > 1) {
+    log_print("'%s' 存在多个条目。请使用ID来修改特定的条目。", key);
+    return;
+  }
+
+  // 名字没匹配到，按 ID 查找
+  if (name_count == 0) {
     node = hash_find_by_id(key);
     while (node) {
-      if (strcmp(node->id, key) == 0) {
-        break;
-      }
+      if (strcmp(node->id, key) == 0) break;
       node = node->hash_id_next;
     }
   }
-  // 如果找到了节点，进行修改
+
   if (node) {
     if (op_user) {
       StackNode* op =

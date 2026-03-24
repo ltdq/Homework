@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c23 -O3
+CFLAGS = -Wall -Wextra -Werror -std=c23 -O3
 LDFLAGS =
 TARGET = student_system
 SRCS = $(wildcard *.c)
@@ -20,4 +20,4 @@ run: all
 .PHONY: all clean
 
 clean:
-	rm -f *.o *.exe
+	del /Q *.o *.exe 2>nul

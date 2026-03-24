@@ -9,17 +9,13 @@ static StackNode* top = NULL;
 
 // 入栈
 void stack_push(StackNode* node) {
-  if (!top) {
-    top = node;
-    return;
-  }
-  node->next = top;
-  top = node;
   log_print("操作入栈: %s, 名字='%s', ID='%s', 值='%s'",
             node->data.type == OP_INSERT   ? "插入"
             : node->data.type == OP_DELETE ? "删除"
                                            : "修改",
             node->data.name, node->data.id, node->data.value);
+  node->next = top;
+  top = node;
 }
 
 // 获取栈顶元素
@@ -43,7 +39,7 @@ void stack_pop(void) {
   free(node);
 }
 
-int stack_is_empty(void) { return top == NULL; }
+int stack_is_empty(void) { return !top; }
 
 // 清空栈
 void stack_init(void) {

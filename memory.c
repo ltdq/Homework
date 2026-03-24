@@ -3,9 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "Log.h"
+
 void memory_check(void* ptr) {
   if (!ptr) {
-    printf("内存分配失败\n");
+    log_print("内存分配失败");
     exit(EXIT_FAILURE);
   }
 }

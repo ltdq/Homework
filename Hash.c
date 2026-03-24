@@ -18,7 +18,7 @@ static unsigned int hash_key(const char* key) {
 
 // 初始化哈希表
 void hash_init(void) {
-  for (int i = 0; i < HASH_TABLE_SIZE; i++) {
+  for (int i = 0; i < HASH_TABLE_SIZE; ++i) {
     hash_table_name[i] = NULL;
     hash_table_id[i] = NULL;
   }
@@ -36,16 +36,12 @@ void hash_add(DataNode* node) {
 
 // 查找数据节点(通过name)
 DataNode* hash_find_by_name(const char* name) {
-  unsigned int idx = hash_key(name);
-  DataNode* node = hash_table_name[idx];
-  return (node == NULL ? NULL : node);
+  return hash_table_name[hash_key(name)];
 }
 
 // 查找数据节点(通过id)
 DataNode* hash_find_by_id(const char* id) {
-  unsigned int idx = hash_key(id);
-  DataNode* node = hash_table_id[idx];
-  return (node == NULL ? NULL : node);
+  return hash_table_id[hash_key(id)];
 }
 
 // 删除数据节点并更新哈希表和链表指针

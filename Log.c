@@ -28,7 +28,7 @@ void log_print(const char* format, ...) {
 
   // 更新计数或起始位置
   if (log_count < LOG_MAX_LINES) {
-    log_count++;
+    ++log_count;
   } else {
     log_start = (log_start + 1) % LOG_MAX_LINES;
   }
