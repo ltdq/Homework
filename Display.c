@@ -1,4 +1,4 @@
-#include "Display.h"
+﻿#include "Display.h"
 
 #include <conio.h>
 #include <locale.h>
@@ -113,9 +113,15 @@ static void move_cursor(int y, int x) { printf("\033[%d;%dH", y, x); }
 // 打印居中文本
 static void print_center(int y, const char* text) {
   int len = 0;
-  // 计算显示宽度（中文算2）
+  // 计算显示宽度（跳过ANSI转义序列，中文算2）
   for (const char* p = text; *p; p++) {
     unsigned char c = (unsigned char)*p;
+    // 跳过ANSI转义序列: \033[...m
+    if (c == '\033' && *(p + 1) == '[') {
+      p += 2;
+      while (*p && *p != 'm') p++;
+      continue;
+    }
     if (c < 0x80)
       len++;
     else if ((c & 0xE0) == 0xC0) {
@@ -162,6 +168,13 @@ static void draw_title(void) {
   int art_width = 66;
   int y = 2;
 
+  // 阴影
+  for (int i = 0; i < 6; i++) {
+    move_cursor(y + i + 1, (term_width - art_width) / 2 + 2);
+    printf(DIM DARKGRAY "%s" RESET, art[i]);
+  }
+
+  // 主标题
   for (int i = 0; i < 6; i++) {
     move_cursor(y + i, (term_width - art_width) / 2);
     printf(BOLD PRIMARY "%s" RESET, art[i]);
