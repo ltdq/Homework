@@ -460,15 +460,18 @@ static void process_input(void) {
   switch (selected_menu) {
     case MENU_INSERT:
       if (input_step == 0) {
-        strncpy(temp_name, input_buffer, 255);
+        strncpy(temp_name, input_buffer, sizeof(temp_name) - 1);
+        temp_name[sizeof(temp_name) - 1] = '\0';
         input_step = 1;
         reset_input();
       } else if (input_step == 1) {
-        strncpy(temp_id, input_buffer, 255);
+        strncpy(temp_id, input_buffer, sizeof(temp_id) - 1);
+        temp_id[sizeof(temp_id) - 1] = '\0';
         input_step = 2;
         reset_input();
       } else {
-        strncpy(temp_value, input_buffer, 255);
+        strncpy(temp_value, input_buffer, sizeof(temp_value) - 1);
+        temp_value[sizeof(temp_value) - 1] = '\0';
         data_insert(temp_name, temp_id, temp_value, 1);
         current_state = STATE_MENU;
         input_step = 0;
@@ -486,7 +489,8 @@ static void process_input(void) {
       break;
     case MENU_MODIFY:
       if (input_step == 0) {
-        strncpy(temp_name, input_buffer, 255);
+        strncpy(temp_name, input_buffer, sizeof(temp_name) - 1);
+        temp_name[sizeof(temp_name) - 1] = '\0';
         input_step = 1;
         reset_input();
       } else {
@@ -497,19 +501,22 @@ static void process_input(void) {
       break;
     case MENU_SAVE:
       data_save(input_buffer);
-      strncpy(current_filename, input_buffer, 255);
+      strncpy(current_filename, input_buffer, sizeof(current_filename) - 1);
+      current_filename[sizeof(current_filename) - 1] = '\0';
       file_loaded = 1;
       current_state = STATE_MENU;
       break;
     case MENU_LOAD:
       data_load(input_buffer);
-      strncpy(current_filename, input_buffer, 255);
+      strncpy(current_filename, input_buffer, sizeof(current_filename) - 1);
+      current_filename[sizeof(current_filename) - 1] = '\0';
       file_loaded = 1;
       current_state = STATE_MENU;
       break;
     case MENU_NEW:
       data_new(input_buffer);
-      strncpy(current_filename, input_buffer, 255);
+      strncpy(current_filename, input_buffer, sizeof(current_filename) - 1);
+      current_filename[sizeof(current_filename) - 1] = '\0';
       file_loaded = 1;
       current_state = STATE_MENU;
       break;
