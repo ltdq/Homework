@@ -11,6 +11,7 @@
 
 #include "Data.h"
 #include "Log.h"
+#include "Trie.h"
 
 // ANSI 颜色码 - 柔和清新配色 (60-30-10)
 #define RESET "\033[0m"
@@ -67,9 +68,20 @@ typedef struct {
   int popup_text_len;
   int popup_active;
 
+  // 搜索状态
+  DataNode* search_results[5];
+  int search_count;
+  int search_selected;
+
   // 终端尺寸
   int term_width;
   int term_height;
+
+  // 布局位置（动态计算）
+  int menu_y;
+  int input_y;
+  int search_y;
+  int log_y;
 } DisplayContext;
 
 // 全局显示上下文
@@ -82,6 +94,8 @@ static DisplayContext ctx = {.state = STATE_MENU,
                              .input_step = 0,
                              .popup_text_len = 0,
                              .popup_active = 0,
+                             .search_count = 0,
+                             .search_selected = -1,
                              .term_width = 80,
                              .term_height = 25};
 
@@ -253,7 +267,7 @@ static void print_padded(const char* text, int width) {
 
 // 绘制菜单
 static void draw_menu(void) {
-  int y = 11;
+  int y = ctx.menu_y;
   // 每项格式: " {icon} {name} "，计算实际最大显示宽度
   int item_width = 0;
   for (int i = 0; i < MENU_COUNT; ++i) {
@@ -288,7 +302,7 @@ static void draw_menu(void) {
 
 // 绘制输入区
 static void draw_input_area(void) {
-  int y = 21;
+  int y = ctx.input_y;
   int left = 2;
   int right = ctx.term_width - 1;
   int box_width = right - left - 1;
@@ -321,7 +335,7 @@ static void draw_input_area(void) {
               prompt = "值";
             break;
           case MENU_GET:
-            prompt = "ID";
+            prompt = "ID/NAME";
             break;
           case MENU_DELETE:
             prompt = "ID";
@@ -359,9 +373,75 @@ static void draw_input_area(void) {
   printf(RESET);
 }
 
+// 判断当前是否处于搜索模式
+static int is_search_mode(void) {
+  if (ctx.state == STATE_MENU) return 0;
+  if (ctx.selected_menu == MENU_GET) return 1;
+  if (ctx.selected_menu == MENU_DELETE) return 1;
+  if (ctx.selected_menu == MENU_MODIFY && ctx.input_step == 0) return 1;
+  return 0;
+}
+
+// 执行搜索
+static void perform_search(void) {
+  ctx.search_count = 0;
+  ctx.search_selected = -1;
+  if (ctx.input_len == 0) return;
+  ctx.input_buf[ctx.input_len] = '\0';
+  DataNode** results = trie_search(ctx.input_buf, &ctx.search_count);
+  if (ctx.search_count > 5) ctx.search_count = 5;
+  for (int i = 0; i < ctx.search_count; i++) {
+    ctx.search_results[i] = results[i];
+  }
+  free(results);
+  if (ctx.search_count > 0) ctx.search_selected = 0;
+}
+
+// 绘制搜索结果框
+static void draw_search_results(void) {
+  if (!is_search_mode()) return;
+  int y = ctx.search_y;
+  int box_height = ctx.search_count > 0 ? ctx.search_count + 2 : 3;
+  int left = 2;
+  int right = ctx.term_width - 1;
+  int box_width = right - left - 1;
+
+  move_cursor(y, left);
+  printf(SECONDARY "┌");
+  print_repeat_str(y, left + 1, "─", box_width);
+  printf("┐" RESET);
+
+  if (ctx.search_count == 0) {
+    move_cursor(y + 1, left);
+    printf(SECONDARY "│" RESET GRAY "  无匹配结果" RESET);
+    move_cursor(y + 1, right);
+    printf(SECONDARY "│" RESET);
+  } else {
+    for (int i = 0; i < ctx.search_count; i++) {
+      move_cursor(y + 1 + i, left);
+      printf(SECONDARY "│" RESET " ");
+      if (i == ctx.search_selected) {
+        printf(BG_SELECTED BOLD WHITE " %s (%s) " RESET,
+               ctx.search_results[i]->name, ctx.search_results[i]->id);
+      } else {
+        printf(GRAY " %s (%s) " RESET, ctx.search_results[i]->name,
+               ctx.search_results[i]->id);
+      }
+      move_cursor(y + 1 + i, right);
+      printf(SECONDARY "│" RESET);
+    }
+  }
+
+  int by = y + 1 + box_height - 2;
+  move_cursor(by, left);
+  printf(SECONDARY "└");
+  print_repeat_str(by, left + 1, "─", box_width);
+  printf("┘" RESET);
+}
+
 // 绘制日志区
 static void draw_log_area(void) {
-  int y = 26;
+  int y = ctx.log_y;
 
   move_cursor(y, 2);
   printf(SUCCESS "📋 日志" RESET);
@@ -465,9 +545,23 @@ static void redraw(void) {
   update_term_size();
   printf(CLEAR HOME);
 
+  // 计算布局位置（自适应终端大小）
+  ctx.menu_y = 10;                                          // 标题占 y=2-9
+  int menu_end = ctx.menu_y + 9;                            // 菜单 3 行 × 3 行高
+  ctx.input_y = menu_end + 1;
+  int input_end = ctx.input_y + 3;                          // 输入框 4 行
+  ctx.search_y = input_end + 1;
+  int search_max = ctx.search_y + 6;                        // 搜索框最多 7 行
+  ctx.log_y = search_max + 1;
+  // 如果终端太低，压缩间距
+  if (ctx.log_y + 3 > ctx.term_height) {
+    ctx.log_y = ctx.term_height - 3;
+  }
+
   draw_title();
   draw_menu();
   draw_input_area();
+  draw_search_results();
   draw_log_area();
   draw_footer();
   draw_popup();
@@ -618,6 +712,8 @@ static void process_input(void) {
       data_get(ctx.input_buf);
       display_show_popup(ctx.popup_text[0] != '\0');
       ctx.state = STATE_MENU;
+      ctx.search_count = 0;
+      ctx.search_selected = -1;
       break;
     case MENU_DELETE:
       data_delete(ctx.input_buf, 1);
@@ -737,11 +833,57 @@ void display_run(void) {
         ctx.state = STATE_MENU;
         ctx.input_step = 0;
         reset_input();
+        ctx.search_count = 0;
+        ctx.search_selected = -1;
         log_print("操作已取消");
       } else if (ch == '\r' || ch == '\n') {
-        process_input();
+        // 搜索模式下有选中结果
+        if (is_search_mode() && ctx.search_selected >= 0 &&
+            ctx.search_selected < ctx.search_count) {
+          DataNode* sel = ctx.search_results[ctx.search_selected];
+          if (ctx.selected_menu == MENU_GET) {
+            ctx.state = STATE_MENU;
+            display_clear_content();
+            data_get(sel->id);
+            display_show_popup(ctx.popup_text[0] != '\0');
+            ctx.search_count = 0;
+            ctx.search_selected = -1;
+            reset_input();
+          } else if (ctx.selected_menu == MENU_DELETE) {
+            data_delete(sel->id, 1);
+            ctx.state = STATE_MENU;
+            ctx.search_count = 0;
+            ctx.search_selected = -1;
+            reset_input();
+          } else if (ctx.selected_menu == MENU_MODIFY) {
+            snprintf(ctx.temp_name, sizeof(ctx.temp_name), "%s", sel->id);
+            ctx.input_step = 1;
+            ctx.search_count = 0;
+            ctx.search_selected = -1;
+            reset_input();
+          }
+        } else {
+          process_input();
+        }
+      } else if (ch == 0 || ch == 224) {
+        ch = _getch();
+        // 搜索模式下方向键选择搜索结果
+        if (is_search_mode() && ctx.search_count > 0) {
+          if (ch == 72 && ctx.search_selected > 0) {  // 上
+            ctx.search_selected--;
+          } else if (ch == 80 &&
+                     ctx.search_selected < ctx.search_count - 1) {  // 下
+            ctx.search_selected++;
+          }
+        } else {
+          handle_char(ch);
+        }
       } else {
         handle_char(ch);
+        // 搜索模式下每次输入后触发搜索
+        if (is_search_mode()) {
+          perform_search();
+        }
       }
     }
   }
