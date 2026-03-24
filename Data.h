@@ -25,4 +25,7 @@ void data_save(const char* filename);
 void data_load(const char* filename);
 void data_undo(void);
 
+// 获取文件修改状态
+int data_is_modified(void);
+
 #endif

@@ -12,7 +12,11 @@
 #include "memory.h"
 #include "yyjson.h"
 
-extern int file_modified;
+// 文件修改状态
+static int file_modified = 0;
+
+// 获取文件修改状态
+int data_is_modified(void) { return file_modified; }
 
 // 创建新的数据节点
 static DataNode* create_list_node(const char* name, const char* id,
@@ -106,8 +110,8 @@ void data_get(const char* key) {
   // 可能存在多个同名的节点，所以需要遍历桶链表
   while (node) {
     if (strcmp(node->name, key) == 0) {
-      display_content_print("姓名: %s\nID: %s\n值: %s\n\n",
-                            node->name, node->id, node->value);
+      display_content_print("姓名: %s\nID: %s\n值: %s\n\n", node->name,
+                            node->id, node->value);
       list_push_visited(node);
       found = 1;
     }
@@ -118,8 +122,8 @@ void data_get(const char* key) {
   DataNode* node_id = hash_find_by_id(key);
   while (node_id) {
     if (strcmp(node_id->id, key) == 0 && is_visited(node_id) == 0) {
-      display_content_print("姓名: %s\nID: %s\n值: %s\n\n",
-                            node_id->name, node_id->id, node_id->value);
+      display_content_print("姓名: %s\nID: %s\n值: %s\n\n", node_id->name,
+                            node_id->id, node_id->value);
       list_push_visited(node_id);
       found = 1;
     }

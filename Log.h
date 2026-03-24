@@ -17,6 +17,7 @@ void log_print(const char* format, ...);
 int log_get_line_count(void);
 
 // 获取指定行的日志内容
+// 返回: 日志内容指针，越界时返回 NULL
 const char* log_get_line(int index);
 
 #endif
