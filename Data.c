@@ -9,6 +9,7 @@
 #include "List.h"
 #include "Log.h"
 #include "Stack.h"
+#include "Trie.h"
 #include "memory.h"
 #include "yyjson.h"
 
@@ -56,6 +57,7 @@ static StackNode* create_stack_node(int type, const char* id, const char* name,
 static void delete_node(DataNode* node) {
   list_remove(node);
   hash_remove(node);
+  trie_delete(node);
   free(node->name);
   free(node->id);
   free(node->value);
@@ -67,6 +69,7 @@ void data_init(void) {
   hash_init();
   list_init();
   stack_init();
+  trie_init();
   file_modified = 0;
 }
 
@@ -94,6 +97,7 @@ void data_insert(const char* name, const char* id, const char* value,
   }
   hash_add(new_node);
   list_push_front(new_node);
+  trie_insert(new_node);
   file_modified = 1;
   log_print("添加: 名字='%s', ID='%s', 值='%s'", name, id, value);
 }
