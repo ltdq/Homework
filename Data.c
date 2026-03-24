@@ -29,8 +29,7 @@ static DataNode* create_list_node(const char* name, const char* id,
   memory_check(node->id);
   node->value = strdup(value);
   memory_check(node->value);
-  node->hash_name_next = NULL;
-  node->hash_id_next = NULL;
+  node->hash_next = NULL;
   node->prev = NULL;
   node->next = NULL;
   return node;
@@ -79,13 +78,13 @@ void data_insert(const char* name, const char* id, const char* value,
     return;
   }
   // 通过id，因为id是唯一的，name可能重复
-  DataNode* existing_node = hash_find_by_id(id);
+  DataNode* existing_node = hash_find(id);
   while (existing_node) {
     if (strcmp(existing_node->id, id) == 0) {
       log_print("'%s' 已经存在", id);
       return;
     }
-    existing_node = existing_node->hash_id_next;
+    existing_node = existing_node->hash_next;
   }
 
   DataNode* new_node = create_list_node(name, id, value);
@@ -100,39 +99,18 @@ void data_insert(const char* name, const char* id, const char* value,
 }
 
 // 获取数据
-void data_get(const char* key) {
-  if (!key) {
+void data_get(const char* id) {
+  if (!id) {
     log_print("输入内容非法");
     return;
   }
-  int found = 0;
-  DataNode* node = hash_find_by_name(key);
-  // 可能存在多个同名的节点，所以需要遍历桶链表
-  while (node) {
-    if (strcmp(node->name, key) == 0) {
-      display_content_print("姓名: %s\nID: %s\n值: %s\n\n", node->name,
-                            node->id, node->value);
-      list_push_visited(node);
-      found = 1;
-    }
-    node = node->hash_name_next;
-  }
-
-  // id是唯一的，所以直接返回第一个匹配的节点即可
-  DataNode* node_id = hash_find_by_id(key);
+  DataNode* node_id = hash_find(id);
   while (node_id) {
-    if (strcmp(node_id->id, key) == 0 && !list_is_visited(node_id)) {
+    if (strcmp(node_id->id, id) == 0) {
       display_content_print("姓名: %s\nID: %s\n值: %s\n\n", node_id->name,
                             node_id->id, node_id->value);
-      list_push_visited(node_id);
-      found = 1;
     }
-    node_id = node_id->hash_id_next;
-  }
-  list_clear_visited();
-
-  if (!found) {
-    display_content_print("未找到: %s", key);
+    node_id = node_id->hash_next;
   }
 }
 
@@ -142,7 +120,7 @@ void data_delete(const char* id, int op_user) {
     log_print("输入内容非法");
     return;
   }
-  DataNode* node = hash_find_by_id(id);
+  DataNode* node = hash_find(id);
   while (node) {
     if (strcmp(node->id, id) == 0) {
       if (op_user) {
@@ -155,45 +133,18 @@ void data_delete(const char* id, int op_user) {
       log_print("'%s' 已被删除", id);
       return;
     }
-    node = node->hash_id_next;
+    node = node->hash_next;
   }
   log_print("'%s' 没有找到用于删除", id);
 }
 
 // 修改数据
-void data_modify(const char* key, const char* new_value, int op_user) {
-  if (!key || !new_value) {
+void data_modify(const char* id, const char* new_value, int op_user) {
+  if (!id || !new_value) {
     log_print("输入内容非法");
     return;
   }
-
-  DataNode* node = NULL;
-
-  // 先按名字查找
-  DataNode* cur = hash_find_by_name(key);
-  int name_count = 0;
-  while (cur) {
-    if (strcmp(cur->name, key) == 0) {
-      node = cur;
-      ++name_count;
-    }
-    cur = cur->hash_name_next;
-  }
-
-  if (name_count > 1) {
-    log_print("'%s' 存在多个条目。请使用ID来修改特定的条目。", key);
-    return;
-  }
-
-  // 名字没匹配到，按 ID 查找
-  if (name_count == 0) {
-    node = hash_find_by_id(key);
-    while (node) {
-      if (strcmp(node->id, key) == 0) break;
-      node = node->hash_id_next;
-    }
-  }
-
+  DataNode* node = hash_find(id);
   if (node) {
     if (op_user) {
       StackNode* op =
@@ -204,10 +155,10 @@ void data_modify(const char* key, const char* new_value, int op_user) {
     node->value = strdup(new_value);
     memory_check(node->value);
     file_modified = 1;
-    log_print("'%s' 的值已修改为: '%s'", key, new_value);
+    log_print("'%s' 的值已修改为: '%s'", id, new_value);
     return;
   }
-  log_print("'%s' 没有找到用于修改", key);
+  log_print("'%s' 没有找到用于修改", id);
 }
 
 // 创建新的数据文件
@@ -305,7 +256,6 @@ void data_undo(void) {
       data_insert(op->data.name, op->data.id, op->data.value, 0);
       break;
     case OP_MODIFY:
-      // 这里直接通过id进行修改，因为id是唯一的
       data_modify(op->data.id, op->data.value, 0);
       break;
     default:

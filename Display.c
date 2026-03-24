@@ -141,7 +141,10 @@ static void move_cursor(int y, int x) { printf("\033[%d;%dH", y, x); }
 // 解码一个 UTF-8 字符，返回码点和字节数
 static uint32_t utf8_decode(const char* s, int* len) {
   unsigned char c = (unsigned char)*s;
-  if (c < 0x80) { *len = 1; return c; }
+  if (c < 0x80) {
+    *len = 1;
+    return c;
+  }
   if ((c & 0xE0) == 0xC0) {
     *len = 2;
     return ((c & 0x1F) << 6) | (s[1] & 0x3F);
@@ -318,14 +321,14 @@ static void draw_input_area(void) {
               prompt = "值";
             break;
           case MENU_GET:
-            prompt = "姓名/ID";
+            prompt = "ID";
             break;
           case MENU_DELETE:
             prompt = "ID";
             break;
           case MENU_MODIFY:
             if (ctx.input_step == 0)
-              prompt = "姓名/ID";
+              prompt = "ID";
             else
               prompt = "新值";
             break;

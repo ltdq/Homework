@@ -8,8 +8,7 @@ typedef struct DataNode DataNode;
 
 void hash_init(void);
 void hash_add(DataNode* node);
-DataNode* hash_find_by_name(const char* name);
-DataNode* hash_find_by_id(const char* id);
+DataNode* hash_find(const char* id);
 void hash_remove(DataNode* node);
 
 #endif

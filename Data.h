@@ -6,8 +6,7 @@ typedef struct DataNode {
   char* name;
   char* id;
   char* value;
-  struct DataNode* hash_name_next;
-  struct DataNode* hash_id_next;
+  struct DataNode* hash_next;
   struct DataNode* prev;
   struct DataNode* next;
   struct DataNode* visited_next;
@@ -17,9 +16,9 @@ typedef struct DataNode {
 void data_init(void);
 void data_insert(const char* name, const char* id, const char* value,
                  int op_user);
-void data_get(const char* key);
+void data_get(const char* id);
 void data_delete(const char* id, int op_user);
-void data_modify(const char* key, const char* new_value, int op_user);
+void data_modify(const char* id, const char* new_value, int op_user);
 void data_new(const char* filename);
 void data_save(const char* filename);
 void data_load(const char* filename);
