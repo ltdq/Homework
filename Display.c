@@ -3,6 +3,7 @@
 #include <conio.h>
 #include <locale.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -137,33 +138,62 @@ static void update_term_size(void) {
 // 移动光标
 static void move_cursor(int y, int x) { printf("\033[%d;%dH", y, x); }
 
-// 打印居中文本
-static void print_center(int y, const char* text) {
-  int len = 0;
-  // 计算显示宽度（跳过ANSI转义序列，中文算2）
-  for (const char* p = text; *p; ++p) {
+// 解码一个 UTF-8 字符，返回码点和字节数
+static uint32_t utf8_decode(const char* s, int* len) {
+  unsigned char c = (unsigned char)*s;
+  if (c < 0x80) { *len = 1; return c; }
+  if ((c & 0xE0) == 0xC0) {
+    *len = 2;
+    return ((c & 0x1F) << 6) | (s[1] & 0x3F);
+  }
+  if ((c & 0xF0) == 0xE0) {
+    *len = 3;
+    return ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
+  }
+  *len = 4;
+  return ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) |
+         (s[3] & 0x3F);
+}
+
+// 根据码点判断显示宽度
+static int utf8_char_width(uint32_t cp) {
+  if (cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) return 0;
+  if (cp >= 0x1100 &&
+      (cp <= 0x115F || cp == 0x2329 || cp == 0x232A ||
+       (cp >= 0x2E80 && cp <= 0x303E) || (cp >= 0x3040 && cp <= 0x33BF) ||
+       (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x4E00 && cp <= 0xA4CF) ||
+       (cp >= 0xA960 && cp <= 0xA97C) || (cp >= 0xAC00 && cp <= 0xD7A3) ||
+       (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFE10 && cp <= 0xFE19) ||
+       (cp >= 0xFE30 && cp <= 0xFE6B) || (cp >= 0xFF01 && cp <= 0xFF60) ||
+       (cp >= 0xFFE0 && cp <= 0xFFE6) || (cp >= 0x1F000 && cp <= 0x1FBFF) ||
+       (cp >= 0x20000 && cp <= 0x2FFFD) || (cp >= 0x30000 && cp <= 0x3FFFD)))
+    return 2;
+  return 1;
+}
+
+// 计算字符串显示宽度（跳过 ANSI 转义序列）
+static int display_width(const char* text) {
+  int width = 0;
+  for (const char* p = text; *p;) {
     unsigned char c = (unsigned char)*p;
-    // 跳过ANSI转义序列: \033[...m
     if (c == '\033' && *(p + 1) == '[') {
       p += 2;
       while (*p && *p != 'm') ++p;
+      if (*p) ++p;
       continue;
     }
-    if (c < 0x80)
-      ++len;
-    else if ((c & 0xE0) == 0xC0) {
-      len += 1;
-      ++p;
-    } else if ((c & 0xF0) == 0xE0) {
-      len += 2;
-      p += 2;
-    } else if ((c & 0xF8) == 0xF0) {
-      len += 2;
-      p += 3;
-    } else
-      ++len;
+    int len;
+    uint32_t cp = utf8_decode(p, &len);
+    width += utf8_char_width(cp);
+    p += len;
   }
-  int x = (ctx.term_width - len) / 2;
+  return width;
+}
+
+// 打印居中文本
+static void print_center(int y, const char* text) {
+  int width = display_width(text);
+  int x = (ctx.term_width - width) / 2;
   if (x < 1) x = 1;
   move_cursor(y, x);
   printf("%s", text);
@@ -192,7 +222,7 @@ static void draw_title(void) {
       "╚═╝      ╚═╝  ╚═╝  ╚═════╝  ╚══════╝    ╚═╝       ╚═╝    ╚══════╝ ╚═╝  "
       "╚═╝"};
 
-  int art_width = 66;
+  int art_width = display_width(art[0]);
   int y = 2;
 
   // 阴影
@@ -211,25 +241,44 @@ static void draw_title(void) {
   print_center(9, LILAC "学生信息管理系统" RESET);
 }
 
+// 打印指定显示宽度的文本，不足部分用空格填充
+static void print_padded(const char* text, int width) {
+  printf("%s", text);
+  int used = display_width(text);
+  for (int i = used; i < width; ++i) putchar(' ');
+}
+
 // 绘制菜单
 static void draw_menu(void) {
   int y = 11;
-  int menu_width = 22;
-  int total_width = 3 * menu_width;
+  // 每项格式: " {icon} {name} "，计算实际最大显示宽度
+  int item_width = 0;
+  for (int i = 0; i < MENU_COUNT; ++i) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), " %s %s ", menu_icons[i], menu_names[i]);
+    int w = display_width(buf);
+    if (w > item_width) item_width = w;
+  }
+  int total_width = 3 * item_width;
   int start_x = (ctx.term_width - total_width) / 2;
   if (start_x < 2) start_x = 2;
 
   for (int i = 0; i < MENU_COUNT; ++i) {
     int row = i / 3;
     int col = i % 3;
-    int x = start_x + col * menu_width;
+    int x = start_x + col * item_width;
     int line_y = y + row * 3;
     move_cursor(line_y, x);
+    char item[64];
+    snprintf(item, sizeof(item), " %s %s ", menu_icons[i], menu_names[i]);
     if (i == ctx.selected_menu) {
-      printf(BG_SELECTED BOLD WHITE " %s %-8s " RESET, menu_icons[i],
-             menu_names[i]);
+      printf(BG_SELECTED BOLD WHITE);
+      print_padded(item, item_width);
+      printf(RESET);
     } else {
-      printf(GRAY " %s %-8s " RESET, menu_icons[i], menu_names[i]);
+      printf(GRAY);
+      print_padded(item, item_width);
+      printf(RESET);
     }
   }
 }
