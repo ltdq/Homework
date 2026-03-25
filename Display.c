@@ -155,27 +155,11 @@ static void update_term_size(void) {
 // 移动光标
 static void move_cursor(int y, int x) { printf("\033[%d;%dH", y, x); }
 
-// 解码一个 UTF-8 字符，返回码点和字节数
-static uint32_t utf8_decode(const char* s, int* len) {
-  unsigned char c = (unsigned char)*s;
-  if (c < 0x80) {
-    *len = 1;
-    return c;
-  }
-  if ((c & 0xE0) == 0xC0) {
-    *len = 2;
-    return ((c & 0x1F) << 6) | (s[1] & 0x3F);
-  }
-  if ((c & 0xF0) == 0xE0) {
-    *len = 3;
-    return ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
-  }
-  *len = 4;
-  return ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) |
-         (s[3] & 0x3F);
-}
+// 前置声明
+static int utf8_char_display_width(const unsigned char* s);
+static int utf8_char_len(const unsigned char* s);
 
-// 根据码点判断显示宽度
+// 根据码点判断显示宽度（精确版，用于 display_width）
 static int utf8_char_width(uint32_t cp) {
   if (cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) return 0;
   if (cp >= 0x1100 &&
@@ -189,6 +173,16 @@ static int utf8_char_width(uint32_t cp) {
        (cp >= 0x20000 && cp <= 0x2FFFD) || (cp >= 0x30000 && cp <= 0x3FFFD)))
     return 2;
   return 1;
+}
+
+// 解码一个 UTF-8 字符，返回码点
+static uint32_t utf8_decode(const char* s, int* len) {
+  unsigned char c = (unsigned char)*s;
+  if (c < 0x80) { *len = 1; return c; }
+  if ((c & 0xE0) == 0xC0) { *len = 2; return ((c & 0x1F) << 6) | (s[1] & 0x3F); }
+  if ((c & 0xF0) == 0xE0) { *len = 3; return ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F); }
+  *len = 4;
+  return ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
 }
 
 // 计算字符串显示宽度（跳过 ANSI 转义序列）
@@ -714,32 +708,56 @@ static void reset_input(void) {
   ctx.input_buf[0] = '\0';
 }
 
-// 处理字符（支持 UTF-8 多字节输入）
-static void handle_char(int ch) {
+// 光标左移一字
+static void cursor_left(void) {
+  if (ctx.input_cursor > 0) {
+    ctx.input_cursor--;
+    while (ctx.input_cursor > 0 &&
+           (ctx.input_buf[ctx.input_cursor] & 0xC0) == 0x80)
+      ctx.input_cursor--;
+  }
+}
+
+// 光标右移一字
+static void cursor_right(void) {
+  if (ctx.input_cursor < ctx.input_len) {
+    ++ctx.input_cursor;
+    while (ctx.input_cursor < ctx.input_len &&
+           (ctx.input_buf[ctx.input_cursor] & 0xC0) == 0x80)
+      ++ctx.input_cursor;
+  }
+}
+
+// 处理字符（支持 UTF-8 多字节 + Windows 扫描码 + ANSI 转义序列）
+// 返回值: 1 = 单独 ESC（取消）, 0 = 正常处理
+static int handle_char(int ch) {
   // Windows 扫描码
   if (ch == 0 || ch == 224) {
     ch = _getch();
     switch (ch) {
-      case 75:  // 左
-        if (ctx.input_cursor > 0) {
-          ctx.input_cursor--;
-          while (ctx.input_cursor > 0 &&
-                 (ctx.input_buf[ctx.input_cursor] & 0xC0) == 0x80)
-            ctx.input_cursor--;
-        }
-        return;
-      case 77:  // 右
-        if (ctx.input_cursor < ctx.input_len) {
-          ++ctx.input_cursor;
-          while (ctx.input_cursor < ctx.input_len &&
-                 (ctx.input_buf[ctx.input_cursor] & 0xC0) == 0x80)
-            ++ctx.input_cursor;
-        }
-        return;
-      case 71: ctx.input_cursor = 0; return;             // Home
-      case 79: ctx.input_cursor = ctx.input_len; return;  // End
+      case 75: cursor_left(); return 0;   // 左
+      case 77: cursor_right(); return 0;  // 右
+      case 71: ctx.input_cursor = 0; return 0;             // Home
+      case 79: ctx.input_cursor = ctx.input_len; return 0; // End
     }
-    return;
+    return 0;
+  }
+
+  // ANSI 转义序列（ESC 开头）
+  if (ch == 27) {
+    { int w = 0; while (!_kbhit() && w < 10) { Sleep(1); w++; } }
+    if (!_kbhit()) return 1;  // 单独 ESC = 取消
+    int next = _getch();
+    if (next == '[' || next == 'O') {
+      int code = _getch();
+      switch (code) {
+        case 'D': cursor_left(); break;   // 左
+        case 'C': cursor_right(); break;  // 右
+        case 'H': ctx.input_cursor = 0; break;             // Home
+        case 'F': ctx.input_cursor = ctx.input_len; break; // End
+      }
+    }
+    return 0;
   }
 
   switch (ch) {
@@ -768,7 +786,7 @@ static void handle_char(int ch) {
 
         if (ctx.input_len + utf8_len >= 512) {
           utf8_len = 512 - ctx.input_len - 1;
-          if (utf8_len <= 0) return;
+          if (utf8_len <= 0) return 0;
         }
 
         memmove(ctx.input_buf + ctx.input_cursor + utf8_len,
@@ -784,7 +802,7 @@ static void handle_char(int ch) {
             memmove(ctx.input_buf + ctx.input_cursor,
                     ctx.input_buf + ctx.input_cursor + 1,
                     ctx.input_len - ctx.input_cursor + 1);
-            return;
+            return 0;
           }
           ctx.input_buf[ctx.input_cursor++] = next;
         }
@@ -792,6 +810,7 @@ static void handle_char(int ch) {
       }
       break;
   }
+  return 0;
 }
 
 // 开始操作
@@ -971,44 +990,18 @@ void display_run(void) {
           start_op();
       }
     } else {
-      if (ch == 27) {  // ESC 或 ANSI 转义序列
-        // 等待少量时间让序列到达（最多 10ms，本地终端通常 < 1ms）
-        { int w = 0; while (!_kbhit() && w < 10) { Sleep(1); w++; } }
-        if (_kbhit()) {
-          int next = _getch();
-          if (next == '[' || next == 'O') {
-            int code = _getch();
-            // 只处理方向键
-            switch (code) {
-              case 'A': case 'B': break;  // 上下忽略
-              case 'C':  // 右
-                if (ctx.input_cursor < ctx.input_len) {
-                  ++ctx.input_cursor;
-                  while (ctx.input_cursor < ctx.input_len &&
-                         (ctx.input_buf[ctx.input_cursor] & 0xC0) == 0x80)
-                    ++ctx.input_cursor;
-                }
-                break;
-              case 'D':  // 左
-                if (ctx.input_cursor > 0) {
-                  ctx.input_cursor--;
-                  while (ctx.input_cursor > 0 &&
-                         (ctx.input_buf[ctx.input_cursor] & 0xC0) == 0x80)
-                    ctx.input_cursor--;
-                }
-                break;
-              case 'H': ctx.input_cursor = 0; break;  // Home
-              case 'F': ctx.input_cursor = ctx.input_len; break;  // End
-            }
+      if (ch == 0 || ch == 224) {
+        ch = _getch();
+        // 搜索模式下方向键选择搜索结果
+        if (is_search_mode() && ctx.search_count > 0) {
+          if (ch == 72 && ctx.search_selected > 0) {  // 上
+            ctx.search_selected--;
+          } else if (ch == 80 &&
+                     ctx.search_selected < ctx.search_count - 1) {  // 下
+            ctx.search_selected++;
           }
         } else {
-          // 单独 ESC — 取消操作
-          ctx.state = STATE_MENU;
-          ctx.input_step = 0;
-          reset_input();
-          ctx.search_count = 0;
-          ctx.search_selected = -1;
-          log_print("操作已取消");
+          handle_char(ch);
         }
       } else if (ch == '\r' || ch == '\n') {
         // 搜索模式下有选中结果
@@ -1039,21 +1032,16 @@ void display_run(void) {
         } else {
           process_input();
         }
-      } else if (ch == 0 || ch == 224) {
-        ch = _getch();
-        // 搜索模式下方向键选择搜索结果
-        if (is_search_mode() && ctx.search_count > 0) {
-          if (ch == 72 && ctx.search_selected > 0) {  // 上
-            ctx.search_selected--;
-          } else if (ch == 80 &&
-                     ctx.search_selected < ctx.search_count - 1) {  // 下
-            ctx.search_selected++;
-          }
-        } else {
-          handle_char(ch);
-        }
       } else {
-        handle_char(ch);
+        if (handle_char(ch)) {
+          // 单独 ESC — 取消操作
+          ctx.state = STATE_MENU;
+          ctx.input_step = 0;
+          reset_input();
+          ctx.search_count = 0;
+          ctx.search_selected = -1;
+          log_print("操作已取消");
+        }
         // 搜索模式下每次输入后触发搜索
         if (is_search_mode()) {
           perform_search();
