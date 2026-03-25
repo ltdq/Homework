@@ -6,12 +6,15 @@
 
 #include "Data.h"
 #include "Display.h"
+#include "memory.h"
 
 static TrieNode* root = NULL;
 
 // 创建前缀树节点
 static TrieNode* create_trie_node(void) {
-  return (TrieNode*)calloc(1, sizeof(TrieNode));
+  TrieNode* node = (TrieNode*)calloc(1, sizeof(TrieNode));
+  memory_check(node);
+  return node;
 }
 
 // 查找子节点
@@ -28,6 +31,7 @@ static TrieNode* get_or_create_child(TrieNode* node, unsigned char b) {
     if (c->byte == b) return c->child;
   }
   ChildNode* c = malloc(sizeof(ChildNode));
+  memory_check(c);
   c->byte = b;
   c->child = create_trie_node();
   c->next = node->children;
@@ -82,6 +86,7 @@ void trie_insert(DataNode* node) {
     cur = get_or_create_child(cur, key[i]);
   }
   cur->data = realloc(cur->data, sizeof(DataNode*) * (cur->data_count + 1));
+  memory_check(cur->data);
   cur->data[cur->data_count++] = node;
 }
 
@@ -131,6 +136,7 @@ static void collect(TrieNode* node, DataNode*** result, int* count, int* cap) {
     if (*count >= *cap) {
       *cap = (*cap < 8) ? 8 : (*cap + (*cap >> 2));
       *result = realloc(*result, sizeof(DataNode*) * (*cap));
+      memory_check(*result);
     }
     (*result)[(*count)++] = node->data[i];
   }
