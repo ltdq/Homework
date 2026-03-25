@@ -43,6 +43,8 @@
 #define HOME "\033[H"
 #define HIDE "\033[?25l"
 #define SHOW "\033[?25h"
+#define ALT_SCREEN "\033[?1049h"
+#define MAIN_SCREEN "\033[?1049l"
 
 // ========== 显示上下文结构体 ==========
 typedef struct {
@@ -761,7 +763,7 @@ void display_init(void) {
   SetConsoleMode(hOut, mode);
 
   // 隐藏光标
-  printf(HIDE);
+  printf(ALT_SCREEN HOME HIDE);
 
   update_term_size();
   log_init();
@@ -769,7 +771,7 @@ void display_init(void) {
 }
 
 void display_cleanup(void) {
-  printf(SHOW CLEAR);
+  printf(SHOW MAIN_SCREEN);
   fflush(stdout);
 }
 
