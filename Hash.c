@@ -30,7 +30,14 @@ void hash_add(DataNode* node) {
 }
 
 // 查找数据节点
-DataNode* hash_find(const char* id) { return hash_table[hash_key(id)]; }
+DataNode* hash_find(const char* id) {
+  DataNode* node = hash_table[hash_key(id)];
+  while (node) {
+    if (strcmp(node->id, id) == 0) return node;
+    node = node->hash_next;
+  }
+  return NULL;
+}
 
 // 删除数据节点并更新哈希表和链表指针
 void hash_remove(DataNode* node) {

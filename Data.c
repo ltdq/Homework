@@ -81,13 +81,9 @@ void data_insert(const char* name, const char* id, const char* value,
     return;
   }
   // 通过id，因为id是唯一的，name可能重复
-  DataNode* existing_node = hash_find(id);
-  while (existing_node) {
-    if (strcmp(existing_node->id, id) == 0) {
-      log_print("'%s' 已经存在", id);
-      return;
-    }
-    existing_node = existing_node->hash_next;
+  if (hash_find(id)) {
+    log_print("'%s' 已经存在", id);
+    return;
   }
 
   DataNode* new_node = create_list_node(name, id, value);
@@ -109,12 +105,9 @@ void data_get(const char* id) {
     return;
   }
   DataNode* node_id = hash_find(id);
-  while (node_id) {
-    if (strcmp(node_id->id, id) == 0) {
-      display_content_print("姓名: %s\nID: %s\n值: %s\n\n", node_id->name,
-                            node_id->id, node_id->value);
-    }
-    node_id = node_id->hash_next;
+  if (node_id) {
+    display_content_print("姓名: %s\nID: %s\n值: %s\n\n", node_id->name,
+                          node_id->id, node_id->value);
   }
 }
 
@@ -125,21 +118,18 @@ void data_delete(const char* id, int op_user) {
     return;
   }
   DataNode* node = hash_find(id);
-  while (node) {
-    if (strcmp(node->id, id) == 0) {
-      if (op_user) {
-        StackNode* op =
-            create_stack_node(OP_DELETE, id, node->name, node->value);
-        stack_push(op);
-      }
-      delete_node(node);
-      file_modified = 1;
-      log_print("'%s' 已被删除", id);
-      return;
+  if (node) {
+    if (op_user) {
+      StackNode* op =
+          create_stack_node(OP_DELETE, id, node->name, node->value);
+      stack_push(op);
     }
-    node = node->hash_next;
+    delete_node(node);
+    file_modified = 1;
+    log_print("'%s' 已被删除", id);
+  } else {
+    log_print("'%s' 没有找到用于删除", id);
   }
-  log_print("'%s' 没有找到用于删除", id);
 }
 
 // 修改数据
