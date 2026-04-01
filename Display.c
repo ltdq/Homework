@@ -178,11 +178,21 @@ static int utf8_char_width(uint32_t cp) {
 // 解码一个 UTF-8 字符，返回码点
 static uint32_t utf8_decode(const char* s, int* len) {
   unsigned char c = (unsigned char)*s;
-  if (c < 0x80) { *len = 1; return c; }
-  if ((c & 0xE0) == 0xC0) { *len = 2; return ((c & 0x1F) << 6) | (s[1] & 0x3F); }
-  if ((c & 0xF0) == 0xE0) { *len = 3; return ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F); }
+  if (c < 0x80) {
+    *len = 1;
+    return c;
+  }
+  if ((c & 0xE0) == 0xC0) {
+    *len = 2;
+    return ((c & 0x1F) << 6) | (s[1] & 0x3F);
+  }
+  if ((c & 0xF0) == 0xE0) {
+    *len = 3;
+    return ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
+  }
   *len = 4;
-  return ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
+  return ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) |
+         (s[3] & 0x3F);
 }
 
 // 计算字符串显示宽度（跳过 ANSI 转义序列）
@@ -306,12 +316,15 @@ static const char* get_prompt_text(void) {
       if (ctx.input_step == 0) return "姓名";
       if (ctx.input_step == 1) return "ID";
       return "值";
-    case MENU_GET:    return "ID/NAME";
-    case MENU_DELETE:  return "ID";
+    case MENU_GET:
+      return "ID/NAME";
+    case MENU_DELETE:
+      return "ID/NAME";
     case MENU_MODIFY:
-      if (ctx.input_step == 0) return "ID";
+      if (ctx.input_step == 0) return "ID/NAME";
       return "新值";
-    default: return "文件名";
+    default:
+      return "文件名";
   }
 }
 
@@ -363,7 +376,8 @@ static void draw_input_area(void) {
   if (ctx.state == STATE_MENU) {
     // 菜单状态：提示文字
     move_cursor(y + 1, left);
-    printf(SECONDARY "│" RESET " " WARNING "按 1-9 或方向键选择，Enter 确认" RESET);
+    printf(SECONDARY "│" RESET " " WARNING
+                     "按 1-9 或方向键选择，Enter 确认" RESET);
     move_cursor(y + 1, right);
     printf(SECONDARY "│" RESET);
     // 空行填充
@@ -392,8 +406,8 @@ static void draw_input_area(void) {
     int cursor_disp_col = 0;
     for (int i = 0; i < total; i++) {
       if (pos[i] >= ctx.input_cursor) break;
-      cursor_disp_col += utf8_char_display_width(
-          (const unsigned char*)&ctx.input_buf[pos[i]]);
+      cursor_disp_col +=
+          utf8_char_display_width((const unsigned char*)&ctx.input_buf[pos[i]]);
     }
 
     // 计算光标在哪一行（按显示列数）
@@ -432,7 +446,8 @@ static void draw_input_area(void) {
       int col = 0;
       while (char_idx < total && col < line_width) {
         int byte_pos = pos[char_idx];
-        int next_byte = (char_idx + 1 < total) ? pos[char_idx + 1] : ctx.input_len;
+        int next_byte =
+            (char_idx + 1 < total) ? pos[char_idx + 1] : ctx.input_len;
         int char_len = next_byte - byte_pos;
         int char_w = utf8_char_display_width(
             (const unsigned char*)&ctx.input_buf[byte_pos]);
@@ -440,7 +455,8 @@ static void draw_input_area(void) {
         if (col + char_w > line_width) break;
 
         // 检查光标是否在这个字符之前
-        if (row == cursor_row && ctx.input_cursor == byte_pos && ctx.state != STATE_MENU) {
+        if (row == cursor_row && ctx.input_cursor == byte_pos &&
+            ctx.state != STATE_MENU) {
           printf(INVERT);
           for (int b = 0; b < char_len; b++)
             putchar(ctx.input_buf[byte_pos + b]);
@@ -454,8 +470,8 @@ static void draw_input_area(void) {
       }
 
       // 光标在末尾（只在光标所在行显示）
-      if (row == cursor_row && ctx.input_cursor == pos[char_idx] && char_idx >= total &&
-          ctx.state != STATE_MENU) {
+      if (row == cursor_row && ctx.input_cursor == pos[char_idx] &&
+          char_idx >= total && ctx.state != STATE_MENU) {
         printf(INVERT " " RESET);
       }
 
@@ -657,7 +673,8 @@ static void wait_for_min_size(void) {
   while (1) {
     update_term_size();
     if (ctx.term_width >= 60 && ctx.term_height >= 24) return;
-    printf(CLEAR HOME WARNING "终端太小，请放大到至少 60×24（当前 %d×%d）" RESET,
+    printf(CLEAR HOME WARNING
+           "终端太小，请放大到至少 60×24（当前 %d×%d）" RESET,
            ctx.term_width, ctx.term_height);
     fflush(stdout);
     Sleep(500);
@@ -678,12 +695,12 @@ static void redraw(void) {
   }
 
   // 计算布局位置（自适应终端大小）
-  ctx.menu_y = 10;                                          // 标题占 y=2-9
-  int menu_end = ctx.menu_y + 9;                            // 菜单 3 行 × 3 行高
+  ctx.menu_y = 10;                // 标题占 y=2-9
+  int menu_end = ctx.menu_y + 9;  // 菜单 3 行 × 3 行高
   ctx.input_y = menu_end + 1;
-  int input_end = ctx.input_y + 6;                          // 输入框 6 行（4 内容 + 2 边框）
+  int input_end = ctx.input_y + 6;  // 输入框 6 行（4 内容 + 2 边框）
   ctx.search_y = input_end + 1;
-  int search_max = ctx.search_y + 6;                        // 搜索框最多 7 行
+  int search_max = ctx.search_y + 6;  // 搜索框最多 7 行
   ctx.log_y = search_max + 1;
   // 如果终端太低，压缩间距
   if (ctx.log_y + 3 > ctx.term_height) {
@@ -735,26 +752,48 @@ static int handle_char(int ch) {
   if (ch == 0 || ch == 224) {
     ch = _getch();
     switch (ch) {
-      case 75: cursor_left(); return 0;   // 左
-      case 77: cursor_right(); return 0;  // 右
-      case 71: ctx.input_cursor = 0; return 0;             // Home
-      case 79: ctx.input_cursor = ctx.input_len; return 0; // End
+      case 75:
+        cursor_left();
+        return 0;  // 左
+      case 77:
+        cursor_right();
+        return 0;  // 右
+      case 71:
+        ctx.input_cursor = 0;
+        return 0;  // Home
+      case 79:
+        ctx.input_cursor = ctx.input_len;
+        return 0;  // End
     }
     return 0;
   }
 
   // ANSI 转义序列（ESC 开头）
   if (ch == 27) {
-    { int w = 0; while (!_kbhit() && w < 10) { Sleep(1); w++; } }
+    {
+      int w = 0;
+      while (!_kbhit() && w < 10) {
+        Sleep(1);
+        w++;
+      }
+    }
     if (!_kbhit()) return 1;  // 单独 ESC = 取消
     int next = _getch();
     if (next == '[' || next == 'O') {
       int code = _getch();
       switch (code) {
-        case 'D': cursor_left(); break;   // 左
-        case 'C': cursor_right(); break;  // 右
-        case 'H': ctx.input_cursor = 0; break;             // Home
-        case 'F': ctx.input_cursor = ctx.input_len; break; // End
+        case 'D':
+          cursor_left();
+          break;  // 左
+        case 'C':
+          cursor_right();
+          break;  // 右
+        case 'H':
+          ctx.input_cursor = 0;
+          break;  // Home
+        case 'F':
+          ctx.input_cursor = ctx.input_len;
+          break;  // End
       }
     }
     return 0;
@@ -765,8 +804,7 @@ static int handle_char(int ch) {
     case 127:
       if (ctx.input_cursor > 0) {
         int start = ctx.input_cursor - 1;
-        while (start > 0 && (ctx.input_buf[start] & 0xC0) == 0x80)
-          start--;
+        while (start > 0 && (ctx.input_buf[start] & 0xC0) == 0x80) start--;
         int char_len = ctx.input_cursor - start;
         memmove(ctx.input_buf + start, ctx.input_buf + ctx.input_cursor,
                 ctx.input_len - ctx.input_cursor + 1);
@@ -943,7 +981,13 @@ void display_run(void) {
         }
       } else if (ch == 27) {
         // ANSI 方向键（等待少量时间让序列到达）
-        { int w = 0; while (!_kbhit() && w < 10) { Sleep(1); w++; } }
+        {
+          int w = 0;
+          while (!_kbhit() && w < 10) {
+            Sleep(1);
+            w++;
+          }
+        }
         if (_kbhit()) {
           int next = _getch();
           if (next == '[' || next == 'O') {
@@ -951,10 +995,18 @@ void display_run(void) {
             int row = ctx.selected_menu / 3;
             int col = ctx.selected_menu % 3;
             switch (code) {
-              case 'A': row = (row - 1 + 3) % 3; break;
-              case 'B': row = (row + 1) % 3; break;
-              case 'D': col = (col - 1 + 3) % 3; break;
-              case 'C': col = (col + 1) % 3; break;
+              case 'A':
+                row = (row - 1 + 3) % 3;
+                break;
+              case 'B':
+                row = (row + 1) % 3;
+                break;
+              case 'D':
+                col = (col - 1 + 3) % 3;
+                break;
+              case 'C':
+                col = (col + 1) % 3;
+                break;
             }
             ctx.selected_menu = row * 3 + col;
           }
