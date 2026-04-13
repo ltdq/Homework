@@ -1,23 +1,39 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -Werror -std=c23 -O3
 LDFLAGS =
-TARGET = student_system
-SRCS = $(wildcard *.c)
-OBJS = $(SRCS:.c=.o)
 
-all: $(TARGET)
+APP_TARGET = student_system
+SMOKE_TARGET = core_smoke_test
 
-$(TARGET): $(OBJS)
+CORE_SRCS = Data.c Hash.c List.c Log.c Stack.c Trie.c memory.c yyjson.c
+APP_SRCS = $(CORE_SRCS) Display.c main.c
+SMOKE_SRCS = $(CORE_SRCS) core_smoke_test.c
+
+APP_OBJS = $(APP_SRCS:.c=.o)
+SMOKE_OBJS = $(SMOKE_SRCS:.c=.o)
+
+all: $(APP_TARGET)
+
+$(APP_TARGET): $(APP_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+	@echo "Build complete: $@"
+
+$(SMOKE_TARGET): $(SMOKE_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 	@echo "Build complete: $@"
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-run: all
-	./$(TARGET).exe
+run: $(APP_TARGET)
+	./$(APP_TARGET).exe
 
-.PHONY: all clean
+smoke-test: $(SMOKE_TARGET)
+
+run-smoke: $(SMOKE_TARGET)
+	./$(SMOKE_TARGET).exe
+
+.PHONY: all clean run smoke-test run-smoke
 
 clean:
 	del /Q *.o *.exe 2>nul

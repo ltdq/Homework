@@ -1,8 +1,6 @@
 #ifndef LOG_H
 #define LOG_H
 
-#include <stddef.h>
-
 // 日志缓冲区大小
 #define LOG_MAX_LINES 100
 #define LOG_MAX_LINE_LENGTH 256

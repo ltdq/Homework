@@ -6,7 +6,6 @@
 
 static DataNode* head = NULL;
 static DataNode* tail = NULL;
-static DataNode* visited_head = NULL;
 
 // 初始化链表
 void list_init(void) {
@@ -24,6 +23,8 @@ void list_init(void) {
 
 // 将节点添加到链表头部
 void list_push_front(DataNode* node) {
+  node->prev = NULL;
+  node->next = NULL;
   if (!head) {
     head = node;
     tail = node;
@@ -53,24 +54,3 @@ DataNode* list_head(void) { return head; }
 
 // 获取链表尾部节点
 DataNode* list_tail(void) { return tail; }
-
-// 将已访问节点添加到链表中
-void list_push_visited(DataNode* node) {
-  node->visited_next = visited_head;
-  visited_head = node;
-}
-
-// 检查节点是否已访问
-int list_is_visited(DataNode* node) {
-  DataNode* current = visited_head;
-  while (current) {
-    if (current == node) {
-      return 1;
-    }
-    current = current->visited_next;
-  }
-  return 0;
-}
-
-// 清空已访问节点链表
-void list_clear_visited(void) { visited_head = NULL; }

@@ -3,16 +3,9 @@
 
 typedef struct DataNode DataNode;
 
-// 子节点链表
-typedef struct ChildNode {
-  unsigned char byte;
-  struct TrieNode* child;
-  struct ChildNode* next;
-} ChildNode;
-
 // 前缀树节点定义
 typedef struct TrieNode {
-  ChildNode* children;
+  struct TrieNode* children[256];
   DataNode** data;
   int data_count;
 } TrieNode;
