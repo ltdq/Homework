@@ -1,11 +1,15 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -Werror -std=c23 -O3
-LDFLAGS =
+PKG_CONFIG = pkg-config
+SODIUM_CFLAGS = $(shell $(PKG_CONFIG) --cflags libsodium)
+SODIUM_LIBS = $(shell $(PKG_CONFIG) --static --libs libsodium)
+
+CFLAGS = -Wall -Wextra -Werror -std=c23 $(SODIUM_CFLAGS)
+LDFLAGS = $(SODIUM_LIBS)
 
 APP_TARGET = student_system
 SMOKE_TARGET = core_smoke_test
 
-CORE_SRCS = Data.c Hash.c List.c Log.c Stack.c Trie.c memory.c yyjson.c
+CORE_SRCS = Auth.c Data.c Hash.c List.c Log.c Stack.c Trie.c memory.c yyjson.c
 APP_SRCS = $(CORE_SRCS) Display.c main.c
 SMOKE_SRCS = $(CORE_SRCS) core_smoke_test.c
 

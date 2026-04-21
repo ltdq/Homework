@@ -1,6 +1,8 @@
 #ifndef DATA_H
 #define DATA_H
 
+#include <stddef.h>
+
 /*
  * DataStatus 用来描述数据层操作的最终结果。
  * 显示层只需要读取这个状态码，就可以决定提示用户什么信息。
@@ -16,8 +18,6 @@ typedef enum DataStatus {
   DATA_NOT_FOUND,
   /* 当前有未保存修改，数据层阻止覆盖式加载或新建。 */
   DATA_DIRTY_BLOCKED,
-  /* 文件读写失败，例如文件无法打开或写入失败。 */
-  DATA_IO_ERROR,
   /* 文件格式不符合系统预期，例如 JSON 结构错误或字段缺失。 */
   DATA_FORMAT_ERROR,
   /* 用户请求撤销时，操作栈已经为空。 */
@@ -55,7 +55,7 @@ void data_init(void);
 /*
  * 插入一条新记录。
  * op_user 为 1 时表示这是用户主动操作，需要记录到撤销栈。
- * op_user 为 0 时表示这是系统内部恢复动作，例如加载文件或撤销时回放。
+ * op_user 为 0 时表示这是系统内部恢复动作，例如导入 JSON 或撤销时回放。
  */
 DataStatus data_insert(const char* name, const char* id, const char* value,
                        int op_user);
@@ -79,20 +79,21 @@ DataStatus data_delete(const char* id, int op_user);
 DataStatus data_modify(const char* id, const char* new_value, int op_user);
 
 /*
- * 新建一个空文件，并把当前内存数据重置为空。
+ * 把当前链表中的所有记录导出成一段 JSON 文本。
+ * 调用方负责释放 out_json 返回的动态缓冲区。
+ */
+DataStatus data_export_json(char** out_json, size_t* out_len);
+
+/*
+ * 从一段 JSON 文本加载数据，并重建当前内存结构。
  * 仅在当前没有未保存修改时允许执行。
  */
-DataStatus data_new(const char* filename);
+DataStatus data_import_json(const char* json_text, size_t json_len);
 
 /*
- * 把当前链表中的所有记录保存到指定 JSON 文件。
+ * 在保存成功后，把当前内存状态标记成“已保存”。
  */
-DataStatus data_save(const char* filename);
-
-/*
- * 从指定 JSON 文件加载数据，并重建当前内存结构。
- */
-DataStatus data_load(const char* filename);
+void data_mark_clean(void);
 
 /*
  * 撤销最近一次用户操作。

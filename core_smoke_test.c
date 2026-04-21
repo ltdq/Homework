@@ -1,11 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
+#include "Auth.h"
 #include "Data.h"
 #include "List.h"
 #include "Log.h"
 #include "Trie.h"
+#include "memory.h"
 
 /* 每个测试用例都采用“无参、无返回值”的统一函数签名。 */
 typedef void (*TestCaseFn)(void);
@@ -19,11 +22,31 @@ typedef struct TestCase {
 } TestCase;
 
 /* 保存回环测试使用的临时文件名。 */
-static const char* SAVE_FILE = "core_smoke_roundtrip.json";
+static const char* SAVE_FILE = "core_smoke_roundtrip.dat";
 /* 新建文件测试使用的临时文件名。 */
-static const char* NEW_FILE = "core_smoke_new.json";
+static const char* NEW_FILE = "core_smoke_new.dat";
 /* 非法文件格式测试使用的临时文件名。 */
-static const char* INVALID_FILE = "core_smoke_invalid.json";
+static const char* INVALID_FILE = "core_smoke_invalid.dat";
+/* 篡改 flag 的临时文件名。 */
+static const char* FLAG_TAMPER_FILE = "core_smoke_flag_tamper.dat";
+/* 篡改 payload 的临时文件名。 */
+static const char* PAYLOAD_TAMPER_FILE = "core_smoke_payload_tamper.dat";
+
+/* smoke test 统一使用这一组演示密码。 */
+static const char* PASSWORD = "demo123";
+/* 错误密码场景使用另一组口令。 */
+static const char* WRONG_PASSWORD = "wrong-password";
+
+/* 下面这些常量与 Auth 模块约定的文件头布局保持一致。 */
+#define AUTH_MAGIC_SIZE_TEST 8
+#define AUTH_VERSION_SIZE_TEST 4
+#define AUTH_SALT_SIZE_TEST 16
+#define AUTH_NONCE_SIZE_TEST 24
+#define AUTH_FLAG_SIZE_OFFSET_TEST                                              \
+  (AUTH_MAGIC_SIZE_TEST + AUTH_VERSION_SIZE_TEST + AUTH_SALT_SIZE_TEST +        \
+   AUTH_NONCE_SIZE_TEST + AUTH_NONCE_SIZE_TEST)
+#define AUTH_PAYLOAD_SIZE_OFFSET_TEST (AUTH_FLAG_SIZE_OFFSET_TEST + 8)
+#define AUTH_HEADER_SIZE_TEST (AUTH_PAYLOAD_SIZE_OFFSET_TEST + 8)
 
 static void fail_impl(const char* expr, const char* file, int line,
                       const char* detail) {
@@ -42,6 +65,8 @@ static void fail_impl(const char* expr, const char* file, int line,
   remove(SAVE_FILE);
   remove(NEW_FILE);
   remove(INVALID_FILE);
+  remove(FLAG_TAMPER_FILE);
+  remove(PAYLOAD_TAMPER_FILE);
 
   /* 立即以失败状态退出整个测试程序。 */
   exit(EXIT_FAILURE);
@@ -60,6 +85,19 @@ static void fail_impl(const char* expr, const char* file, int line,
   do {                                                                        \
     DataStatus actual_value__ = (actual);                                     \
     DataStatus expected_value__ = (expected);                                 \
+    if (actual_value__ != expected_value__) {                                 \
+      char detail__[128];                                                     \
+      snprintf(detail__, sizeof(detail__), "actual=%d expected=%d",           \
+               actual_value__, expected_value__);                             \
+      fail_impl(#actual, __FILE__, __LINE__, detail__);                       \
+    }                                                                         \
+  } while (0)
+
+/* 断言实际认证状态码与预期状态码一致。 */
+#define EXPECT_AUTH_STATUS(actual, expected)                                  \
+  do {                                                                        \
+    AuthStatus actual_value__ = (actual);                                     \
+    AuthStatus expected_value__ = (expected);                                 \
     if (actual_value__ != expected_value__) {                                 \
       char detail__[128];                                                     \
       snprintf(detail__, sizeof(detail__), "actual=%d expected=%d",           \
@@ -90,17 +128,122 @@ static void reset_environment(void) {
   remove(SAVE_FILE);
   remove(NEW_FILE);
   remove(INVALID_FILE);
+  remove(FLAG_TAMPER_FILE);
+  remove(PAYLOAD_TAMPER_FILE);
 }
 
-static void write_text_file(const char* filename, const char* content) {
-  /* 以二进制写模式打开文件，避免平台换行差异影响内容。 */
-  FILE* file = fopen(filename, "wb");
-  /* 打开成功是后续写文件的前提。 */
+static uint64_t read_u64_le(const unsigned char* src) {
+  /* value 用来累加 8 个字节拼出的无符号整数。 */
+  uint64_t value = 0;
+
+  /* 按小端顺序把每个字节移动到对应位置。 */
+  for (int i = 0; i < 8; ++i) {
+    value |= (uint64_t)src[i] << (i * 8);
+  }
+
+  /* 返回最终结果。 */
+  return value;
+}
+
+static unsigned char* read_binary_file(const char* filename, size_t* out_size) {
+  /* file 保存打开后的文件句柄。 */
+  FILE* file = fopen(filename, "rb");
+
+  /* file_size_long 保存 ftell 读出的文件长度。 */
+  long file_size_long;
+
+  /* data 保存完整文件内容。 */
+  unsigned char* data;
+
+  /* 输出长度参数必须有效。 */
+  EXPECT_TRUE(out_size != NULL);
+  /* 打开文件必须成功。 */
   EXPECT_TRUE(file != NULL);
-  /* 把指定文本写入文件。 */
-  fputs(content, file);
-  /* 关闭文件，确保数据落盘。 */
+
+  /* 先跳到文件尾部读取长度。 */
+  EXPECT_TRUE(fseek(file, 0, SEEK_END) == 0);
+  file_size_long = ftell(file);
+  EXPECT_TRUE(file_size_long >= 0);
+  EXPECT_TRUE(fseek(file, 0, SEEK_SET) == 0);
+
+  /* 为整文件内容分配缓冲区。 */
+  data = malloc((size_t)file_size_long);
+  memory_check(data);
+
+  /* 一次性读取完整文件。 */
+  EXPECT_TRUE(fread(data, 1, (size_t)file_size_long, file) ==
+              (size_t)file_size_long);
   fclose(file);
+
+  /* 把长度写回调用方。 */
+  *out_size = (size_t)file_size_long;
+  return data;
+}
+
+static void write_binary_file(const char* filename, const unsigned char* data,
+                              size_t size) {
+  /* file 保存目标文件句柄。 */
+  FILE* file = fopen(filename, "wb");
+
+  /* 打开文件必须成功。 */
+  EXPECT_TRUE(file != NULL);
+
+  /* 把指定字节流原样写回磁盘。 */
+  EXPECT_TRUE(fwrite(data, 1, size, file) == size);
+  fclose(file);
+}
+
+static AuthStatus save_encrypted_snapshot(const char* filename,
+                                          const char* password) {
+  /* json_text 保存从 Data 模块导出的 JSON 文本。 */
+  char* json_text = NULL;
+
+  /* json_len 保存 JSON 文本的字节长度。 */
+  size_t json_len = 0;
+
+  /* status 保存最终的 Auth 状态。 */
+  AuthStatus status;
+
+  /* 先导出当前链表对应的 JSON 明文。 */
+  EXPECT_STATUS(data_export_json(&json_text, &json_len), DATA_OK);
+
+  /* 再调用 Auth 模块把明文加密保存到文件。 */
+  status = auth_save_file(filename, password, (const unsigned char*)json_text,
+                          json_len);
+
+  /* 把导出的明文 JSON 擦除后释放。 */
+  auth_wipe_text(json_text, json_len + 1);
+  free(json_text);
+
+  /* 保存成功后，当前内存与磁盘内容一致。 */
+  if (status == AUTH_OK) {
+    data_mark_clean();
+  }
+
+  /* 返回最终状态。 */
+  return status;
+}
+
+static AuthStatus load_plaintext_from_file(const char* filename,
+                                           const char* password,
+                                           unsigned char** out_plaintext,
+                                           size_t* out_plaintext_len) {
+  /* 直接把请求转给 Auth 模块。 */
+  return auth_load_file(filename, password, out_plaintext, out_plaintext_len);
+}
+
+static DataStatus import_plaintext_into_data(unsigned char* plaintext,
+                                             size_t plaintext_len) {
+  /* status 保存 Data 模块的导入结果。 */
+  DataStatus status =
+      data_import_json((const char*)plaintext, plaintext_len);
+
+  /* Data 模块使用完明文后，立刻擦除并释放缓冲区。 */
+  auth_wipe_text((char*)plaintext, plaintext_len + 1);
+  auth_free_buffer(plaintext);
+
+  /* 返回最终状态。 */
+  return status;
 }
 
 static const DataNode* require_record(const char* id) {
@@ -266,53 +409,174 @@ static void test_modify_delete_and_undo(void) {
 }
 
 static void test_save_load_and_dirty_guards(void) {
+  /* plaintext 保存 Auth 解密出来的 JSON 明文。 */
+  unsigned char* plaintext = NULL;
+
+  /* plaintext_len 保存 JSON 明文长度。 */
+  size_t plaintext_len = 0;
+
+  /* json_text 保存导出的 JSON 文本。 */
+  char* json_text = NULL;
+
+  /* json_len 保存导出的 JSON 文本长度。 */
+  size_t json_len = 0;
+
   reset_environment();
   seed_featured_records();
 
   /* 首次保存应成功，且脏标记清零。 */
-  EXPECT_STATUS(data_save(SAVE_FILE), DATA_OK);
+  EXPECT_AUTH_STATUS(save_encrypted_snapshot(SAVE_FILE, PASSWORD), AUTH_OK);
   EXPECT_TRUE(data_is_modified() == 0);
 
   /* 修改后脏标记应为 1。 */
   EXPECT_STATUS(data_modify("CS26A01", "算法设计 99", 1), DATA_OK);
   EXPECT_TRUE(data_is_modified() == 1);
 
-  /* 有未保存修改时，加载和新建都应被阻止。 */
-  EXPECT_STATUS(data_load(SAVE_FILE), DATA_DIRTY_BLOCKED);
-  EXPECT_STATUS(data_new(NEW_FILE), DATA_DIRTY_BLOCKED);
+  /* 有未保存修改时，Data 层会阻止直接导入新的明文 JSON。 */
+  EXPECT_STATUS(data_export_json(&json_text, &json_len), DATA_OK);
+  EXPECT_STATUS(data_import_json(json_text, json_len), DATA_DIRTY_BLOCKED);
+  auth_wipe_text(json_text, json_len + 1);
+  free(json_text);
 
-  /* 先保存，再重新加载，验证回环流程。 */
-  EXPECT_STATUS(data_save(SAVE_FILE), DATA_OK);
-  EXPECT_STATUS(data_load(SAVE_FILE), DATA_OK);
+  /* 先重新保存，再经过 Auth + Data 的组合路径重新加载。 */
+  EXPECT_AUTH_STATUS(save_encrypted_snapshot(SAVE_FILE, PASSWORD), AUTH_OK);
+  data_init();
+  EXPECT_AUTH_STATUS(load_plaintext_from_file(SAVE_FILE, PASSWORD, &plaintext,
+                                              &plaintext_len),
+                     AUTH_OK);
+  EXPECT_STATUS(import_plaintext_into_data(plaintext, plaintext_len), DATA_OK);
   expect_record("CS26A01", "陈晨", "算法设计 99");
   EXPECT_TRUE(data_is_modified() == 0);
 }
 
-static void test_file_validation_and_new_file(void) {
+static void test_wrong_password_preserves_memory(void) {
+  /* plaintext 保存 Auth 解密出来的 JSON 明文。 */
+  unsigned char* plaintext = NULL;
+
+  /* plaintext_len 保存 JSON 明文长度。 */
+  size_t plaintext_len = 0;
+
   reset_environment();
   seed_featured_records();
 
-  /* 先保存一份合法文件。 */
-  EXPECT_STATUS(data_save(SAVE_FILE), DATA_OK);
+  /* 先保存一份正确的加密快照。 */
+  EXPECT_AUTH_STATUS(save_encrypted_snapshot(SAVE_FILE, PASSWORD), AUTH_OK);
 
-  /* 手工写入一份根节点不是数组的非法文件。 */
-  write_text_file(INVALID_FILE, "{ \"broken\": true }");
+  /* 再准备一组当前内存里的基线数据，用来验证失败后状态不变。 */
+  data_init();
+  EXPECT_STATUS(data_insert("保留用户", "KEEP01", "Keep Value", 1), DATA_OK);
 
-  /* 加载非法文件应返回格式错误。 */
-  EXPECT_STATUS(data_load(INVALID_FILE), DATA_FORMAT_ERROR);
+  /* 错误密码应当在 Auth 层直接失败。 */
+  EXPECT_AUTH_STATUS(load_plaintext_from_file(SAVE_FILE, WRONG_PASSWORD,
+                                              &plaintext, &plaintext_len),
+                     AUTH_PASSWORD_ERROR);
+  EXPECT_TRUE(plaintext == NULL);
+  EXPECT_TRUE(plaintext_len == 0);
 
-  /* 加载失败后，原内存数据应保持不变。 */
+  /* 当前内存数据应保持原样。 */
+  expect_record("KEEP01", "保留用户", "Keep Value");
+  EXPECT_TRUE(data_find_by_id("CS26A01") == NULL);
+}
+
+static void test_auth_validation_and_new_file(void) {
+  /* duplicate_json 用来验证重复 ID 导入会整体失败并回滚。 */
+  static const char* duplicate_json =
+      "[{\"name\":\"重复一\",\"id\":\"DUP01\",\"value\":\"V1\"},"
+      "{\"name\":\"重复二\",\"id\":\"DUP01\",\"value\":\"V2\"}]";
+
+  /* file_data 保存读出的加密文件内容。 */
+  unsigned char* file_data;
+
+  /* file_size 保存加密文件总长度。 */
+  size_t file_size;
+
+  /* flag_size 保存头部里记录的 flag 密文长度。 */
+  uint64_t flag_size;
+
+  /* plaintext 保存 Auth 解密出来的 JSON 明文。 */
+  unsigned char* plaintext = NULL;
+
+  /* plaintext_len 保存 JSON 明文长度。 */
+  size_t plaintext_len = 0;
+
+  reset_environment();
+  seed_featured_records();
+
+  /* 先保存一份合法加密文件。 */
+  EXPECT_AUTH_STATUS(save_encrypted_snapshot(SAVE_FILE, PASSWORD), AUTH_OK);
+
+  /* 读出完整文件内容，后续基于它构造篡改样本。 */
+  file_data = read_binary_file(SAVE_FILE, &file_size);
+  EXPECT_TRUE(file_size > AUTH_HEADER_SIZE_TEST);
+
+  /* 先篡改 magic，验证文件头校验。 */
+  file_data[0] ^= 0x01;
+  write_binary_file(INVALID_FILE, file_data, file_size);
+  EXPECT_AUTH_STATUS(load_plaintext_from_file(INVALID_FILE, PASSWORD, &plaintext,
+                                              &plaintext_len),
+                     AUTH_FORMAT_ERROR);
+  EXPECT_TRUE(plaintext == NULL);
+  EXPECT_TRUE(plaintext_len == 0);
+
+  /* 恢复原始文件内容，再构造 flag 篡改样本。 */
+  free(file_data);
+  file_data = read_binary_file(SAVE_FILE, &file_size);
+  flag_size = read_u64_le(file_data + AUTH_FLAG_SIZE_OFFSET_TEST);
+  file_data[AUTH_HEADER_SIZE_TEST] ^= 0x01;
+  write_binary_file(FLAG_TAMPER_FILE, file_data, file_size);
+  EXPECT_AUTH_STATUS(load_plaintext_from_file(FLAG_TAMPER_FILE, PASSWORD,
+                                              &plaintext, &plaintext_len),
+                     AUTH_PASSWORD_ERROR);
+  EXPECT_TRUE(plaintext == NULL);
+  EXPECT_TRUE(plaintext_len == 0);
+
+  /* 再篡改 payload，验证真正数据段的认证失败分支。 */
+  file_data[AUTH_HEADER_SIZE_TEST] ^= 0x01;
+  file_data[AUTH_HEADER_SIZE_TEST + (size_t)flag_size] ^= 0x01;
+  write_binary_file(PAYLOAD_TAMPER_FILE, file_data, file_size);
+  EXPECT_AUTH_STATUS(load_plaintext_from_file(PAYLOAD_TAMPER_FILE, PASSWORD,
+                                              &plaintext, &plaintext_len),
+                     AUTH_CRYPTO_ERROR);
+  EXPECT_TRUE(plaintext == NULL);
+  EXPECT_TRUE(plaintext_len == 0);
+
+  /* 当前内存数据仍然保持保存前的状态。 */
   expect_record("CS26A03", "陈晨曦", "编译原理 95");
 
-  /* 新建文件应清空内存结构。 */
-  EXPECT_STATUS(data_new(NEW_FILE), DATA_OK);
+  /* 新建空加密文件后，把内存切到空状态。 */
+  EXPECT_AUTH_STATUS(auth_save_file(NEW_FILE, PASSWORD,
+                                    (const unsigned char*)"[]", 2),
+                     AUTH_OK);
+  data_init();
   EXPECT_TRUE(data_find_by_id("CS26A01") == NULL);
   EXPECT_TRUE(list_head() == NULL);
   EXPECT_TRUE(list_tail() == NULL);
 
-  /* 再加载合法文件，验证数据可以恢复。 */
-  EXPECT_STATUS(data_load(SAVE_FILE), DATA_OK);
-  expect_record("SE24C22", "Alicia", "Computer Networks 87");
+  /* 再加载空加密文件，验证空数组可以正常导入。 */
+  EXPECT_AUTH_STATUS(load_plaintext_from_file(NEW_FILE, PASSWORD, &plaintext,
+                                              &plaintext_len),
+                     AUTH_OK);
+  EXPECT_STATUS(import_plaintext_into_data(plaintext, plaintext_len), DATA_OK);
+  EXPECT_TRUE(data_find_by_id("CS26A01") == NULL);
+  EXPECT_TRUE(list_head() == NULL);
+  EXPECT_TRUE(list_tail() == NULL);
+  EXPECT_TRUE(data_is_modified() == 0);
+
+  /* 手工传入一段结构错误的 JSON 明文，验证 Data 层的格式校验。 */
+  EXPECT_STATUS(data_import_json("{ \"broken\": true }",
+                                 strlen("{ \"broken\": true }")),
+                DATA_FORMAT_ERROR);
+
+  /* 重复 ID 的 JSON 导入也应整体失败，并保持空状态。 */
+  EXPECT_STATUS(data_import_json(duplicate_json, strlen(duplicate_json)),
+                DATA_FORMAT_ERROR);
+  EXPECT_TRUE(data_find_by_id("DUP01") == NULL);
+  EXPECT_TRUE(list_head() == NULL);
+  EXPECT_TRUE(list_tail() == NULL);
+  EXPECT_TRUE(data_is_modified() == 0);
+
+  /* 释放最后一份文件缓冲区。 */
+  free(file_data);
 }
 
 static void test_long_name_delete_safety(void) {
@@ -346,7 +610,8 @@ int main(void) {
       {"trie_prefix_search", test_trie_prefix_search},
       {"modify_delete_and_undo", test_modify_delete_and_undo},
       {"save_load_and_dirty_guards", test_save_load_and_dirty_guards},
-      {"file_validation_and_new_file", test_file_validation_and_new_file},
+      {"wrong_password_preserves_memory", test_wrong_password_preserves_memory},
+      {"auth_validation_and_new_file", test_auth_validation_and_new_file},
       {"long_name_delete_safety", test_long_name_delete_safety},
   };
 
@@ -363,6 +628,8 @@ int main(void) {
   remove(SAVE_FILE);
   remove(NEW_FILE);
   remove(INVALID_FILE);
+  remove(FLAG_TAMPER_FILE);
+  remove(PAYLOAD_TAMPER_FILE);
 
   /* 输出总通过信息。 */
   puts("core smoke test passed");

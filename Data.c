@@ -13,7 +13,7 @@
 /*
  * file_modified 用来记录“当前内存数据是否和磁盘文件不同”。
  * 只要发生用户可见的数据变更，就把它设为 1。
- * 成功保存、成功加载、成功新建空文件后，再把它清回 0。
+ * 成功导入 JSON、成功保存加密文件、成功新建空文件后，再把它清回 0。
  */
 static int file_modified = 0;
 
@@ -139,6 +139,110 @@ static void free_string_arrays(const char** names, const char** ids,
   free(values);
 }
 
+static DataStatus import_doc(yyjson_doc* doc) {
+  /* root 是 JSON 根节点。 */
+  yyjson_val* root;
+
+  /* count 是数组元素总数。 */
+  size_t count;
+
+  /* names / ids / values 暂存每条记录的字符串指针。 */
+  const char** names = NULL;
+  const char** ids = NULL;
+  const char** values = NULL;
+
+  /* idx 和 max 用于 yyjson 的数组遍历宏。 */
+  size_t idx;
+  size_t max;
+
+  /* item 表示当前遍历到的数组元素。 */
+  yyjson_val* item;
+
+  /* 取出根节点。 */
+  root = yyjson_doc_get_root(doc);
+
+  /* 根节点不是数组时，格式不符合系统约定。 */
+  if (!yyjson_is_arr(root)) {
+    return DATA_FORMAT_ERROR;
+  }
+
+  /* 获取数组中的记录数量。 */
+  count = yyjson_arr_size(root);
+
+  /* 有记录时才为临时指针数组分配空间。 */
+  if (count > 0) {
+    names = malloc(sizeof(*names) * count);
+    ids = malloc(sizeof(*ids) * count);
+    values = malloc(sizeof(*values) * count);
+    memory_check(names);
+    memory_check(ids);
+    memory_check(values);
+  }
+
+  /* idx 由 yyjson_arr_foreach 宏自动维护。 */
+  idx = 0;
+
+  /* 逐项检查 JSON 数组中的每条记录。 */
+  yyjson_arr_foreach(root, idx, max, item) {
+    /* 取出当前对象的 name 字段。 */
+    yyjson_val* name_val = yyjson_obj_get(item, "name");
+
+    /* 取出当前对象的 id 字段。 */
+    yyjson_val* id_val = yyjson_obj_get(item, "id");
+
+    /* 取出当前对象的 value 字段。 */
+    yyjson_val* value_val = yyjson_obj_get(item, "value");
+
+    /* 只接受三个字段都存在且都是非空字符串的记录。 */
+    if (!yyjson_is_str(name_val) || !yyjson_is_str(id_val) ||
+        !yyjson_is_str(value_val) || !is_non_empty(yyjson_get_str(name_val)) ||
+        !is_non_empty(yyjson_get_str(id_val)) ||
+        !is_non_empty(yyjson_get_str(value_val))) {
+      free_string_arrays(names, ids, values);
+      return DATA_FORMAT_ERROR;
+    }
+
+    /* 暂存 name 字符串指针。 */
+    names[idx] = yyjson_get_str(name_val);
+
+    /* 暂存 id 字符串指针。 */
+    ids[idx] = yyjson_get_str(id_val);
+
+    /* 暂存 value 字符串指针。 */
+    values[idx] = yyjson_get_str(value_val);
+  }
+
+  /* 先把当前内存结构重置为空，准备装载新文件内容。 */
+  data_init();
+
+  /* 把所有记录逐条插入系统内部结构。 */
+  /* 重复 ID 直接复用哈希表的唯一性校验。 */
+  for (size_t i = 0; i < count; ++i) {
+    DataStatus status = data_insert(names[i], ids[i], values[i], 0);
+
+    /* 任意一条插入失败都视为整体加载失败。 */
+    if (status != DATA_OK) {
+      /* 回滚到空状态，避免出现半加载状态。 */
+      data_init();
+
+      /* 释放临时数组。 */
+      free_string_arrays(names, ids, values);
+
+      /* 内部如果报重复 ID，统一归并为文件格式错误。 */
+      return status == DATA_DUPLICATE_ID ? DATA_FORMAT_ERROR : status;
+    }
+  }
+
+  /* 临时数组已经用完，可以释放。 */
+  free_string_arrays(names, ids, values);
+
+  /* 导入成功后，内存与文件同步，脏标记清零。 */
+  file_modified = 0;
+
+  /* 返回成功。 */
+  return DATA_OK;
+}
+
 void data_init(void) {
   /* 重建哈希索引。 */
   hash_init();
@@ -153,6 +257,11 @@ void data_init(void) {
   trie_init();
 
   /* 初始化后的内存状态视为干净。 */
+  file_modified = 0;
+}
+
+void data_mark_clean(void) {
+  /* 保存成功后，把当前脏标记清零。 */
   file_modified = 0;
 }
 
@@ -275,57 +384,7 @@ DataStatus data_modify(const char* id, const char* new_value, int op_user) {
   return DATA_OK;
 }
 
-DataStatus data_new(const char* filename) {
-  /* doc 表示可写 JSON 文档对象。 */
-  yyjson_mut_doc* doc;
-
-  /* root 是文档根节点，这里会是一个空数组。 */
-  yyjson_mut_val* root;
-
-  /* status 保存写文件接口的执行结果。 */
-  int status;
-
-  /* 文件名为空时拒绝创建。 */
-  if (!is_non_empty(filename)) {
-    return DATA_INVALID_ARGUMENT;
-  }
-
-  /* 当前存在未保存修改时，阻止直接新建，避免覆盖用户内存数据。 */
-  if (file_modified) {
-    return DATA_DIRTY_BLOCKED;
-  }
-
-  /* 新建一个可写 JSON 文档。 */
-  doc = yyjson_mut_doc_new(NULL);
-
-  /* 创建根数组，空文件就保存为空数组结构。 */
-  root = yyjson_mut_arr(doc);
-
-  /* 把根数组挂到文档上。 */
-  yyjson_mut_doc_set_root(doc, root);
-
-  /* 直接把空数组写入指定文件。 */
-  status = yyjson_mut_write_file(filename, doc, 0, NULL, NULL);
-
-  /* 文档对象用完后立刻释放。 */
-  yyjson_mut_doc_free(doc);
-
-  /* 写文件失败时返回 IO 错误。 */
-  if (!status) {
-    return DATA_IO_ERROR;
-  }
-
-  /* 文件创建成功后，清空当前内存数据结构。 */
-  data_init();
-
-  /* 新建完成时，内存与磁盘一致，脏标记保持为 0。 */
-  file_modified = 0;
-
-  /* 返回成功。 */
-  return DATA_OK;
-}
-
-DataStatus data_save(const char* filename) {
+DataStatus data_export_json(char** out_json, size_t* out_len) {
   /* doc 是待输出的可写 JSON 文档。 */
   yyjson_mut_doc* doc;
 
@@ -335,13 +394,17 @@ DataStatus data_save(const char* filename) {
   /* node 用来从链表尾向前遍历所有记录。 */
   DataNode* node;
 
-  /* status 保存实际写文件结果。 */
-  int status;
+  /* json_text 保存序列化后的 JSON 字符串。 */
+  char* json_text;
 
-  /* 文件名为空时直接拒绝。 */
-  if (!is_non_empty(filename)) {
+  /* 输出参数为空时直接拒绝。 */
+  if (!out_json || !out_len) {
     return DATA_INVALID_ARGUMENT;
   }
+
+  /* 先把输出指针清成空，避免调用方读到脏值。 */
+  *out_json = NULL;
+  *out_len = 0;
 
   /* 创建一个新的可写 JSON 文档。 */
   doc = yyjson_mut_doc_new(NULL);
@@ -371,48 +434,31 @@ DataStatus data_save(const char* filename) {
     node = node->prev;
   }
 
-  /* 把完整文档写到目标文件。 */
-  status = yyjson_mut_write_file(filename, doc, 0, NULL, NULL);
+  /* 把完整文档序列化成一段动态字符串。 */
+  json_text = yyjson_mut_write(doc, 0, out_len);
 
   /* 写完后释放 JSON 文档对象。 */
   yyjson_mut_doc_free(doc);
 
-  /* 写失败时返回 IO 错误。 */
-  if (!status) {
-    return DATA_IO_ERROR;
-  }
+  /* 序列化失败说明内存申请没有成功。 */
+  memory_check(json_text);
 
-  /* 保存成功后，当前内存状态与磁盘内容一致。 */
-  file_modified = 0;
+  /* 把结果交给调用方。 */
+  *out_json = json_text;
 
   /* 返回成功。 */
   return DATA_OK;
 }
 
-DataStatus data_load(const char* filename) {
+DataStatus data_import_json(const char* json_text, size_t json_len) {
   /* doc 保存从文件解析出来的只读 JSON 文档。 */
   yyjson_doc* doc;
 
-  /* root 是 JSON 根节点。 */
-  yyjson_val* root;
+  /* status 保存最终导入结果。 */
+  DataStatus status;
 
-  /* count 是数组元素总数。 */
-  size_t count;
-
-  /* names / ids / values 暂存每条记录的字符串指针。 */
-  const char** names = NULL;
-  const char** ids = NULL;
-  const char** values = NULL;
-
-  /* idx 和 max 用于 yyjson 的数组遍历宏。 */
-  size_t idx;
-  size_t max;
-
-  /* item 表示当前遍历到的数组元素。 */
-  yyjson_val* item;
-
-  /* 文件名为空时直接报参数错误。 */
-  if (!is_non_empty(filename)) {
+  /* 文本指针为空时直接报参数错误。 */
+  if (!json_text) {
     return DATA_INVALID_ARGUMENT;
   }
 
@@ -421,115 +467,22 @@ DataStatus data_load(const char* filename) {
     return DATA_DIRTY_BLOCKED;
   }
 
-  /* 读取并解析 JSON 文件。 */
-  doc = yyjson_read_file(filename, 0, NULL, NULL);
+  /* 读取并解析 JSON 文本。 */
+  doc = yyjson_read(json_text, json_len, 0);
 
-  /* 文件打不开或 JSON 无法解析时，统一返回 IO 错误。 */
+  /* JSON 无法解析时，统一返回格式错误。 */
   if (!doc) {
-    return DATA_IO_ERROR;
-  }
-
-  /* 取出根节点。 */
-  root = yyjson_doc_get_root(doc);
-
-  /* 根节点不是数组时，格式不符合系统约定。 */
-  if (!yyjson_is_arr(root)) {
-    yyjson_doc_free(doc);
     return DATA_FORMAT_ERROR;
   }
 
-  /* 获取数组中的记录数量。 */
-  count = yyjson_arr_size(root);
-
-  /* 有记录时才为临时指针数组分配空间。 */
-  if (count > 0) {
-    names = malloc(sizeof(*names) * count);
-    ids = malloc(sizeof(*ids) * count);
-    values = malloc(sizeof(*values) * count);
-    memory_check(names);
-    memory_check(ids);
-    memory_check(values);
-  }
-
-  /* idx 由 yyjson_arr_foreach 宏自动维护。 */
-  idx = 0;
-
-  /* 逐项检查 JSON 数组中的每条记录。 */
-  yyjson_arr_foreach(root, idx, max, item) {
-    /* 取出当前对象的 name 字段。 */
-    yyjson_val* name_val = yyjson_obj_get(item, "name");
-
-    /* 取出当前对象的 id 字段。 */
-    yyjson_val* id_val = yyjson_obj_get(item, "id");
-
-    /* 取出当前对象的 value 字段。 */
-    yyjson_val* value_val = yyjson_obj_get(item, "value");
-
-    /* 只接受三个字段都存在且都是非空字符串的记录。 */
-    if (!yyjson_is_str(name_val) || !yyjson_is_str(id_val) ||
-        !yyjson_is_str(value_val) || !is_non_empty(yyjson_get_str(name_val)) ||
-        !is_non_empty(yyjson_get_str(id_val)) ||
-        !is_non_empty(yyjson_get_str(value_val))) {
-      free_string_arrays(names, ids, values);
-      yyjson_doc_free(doc);
-      return DATA_FORMAT_ERROR;
-    }
-
-    /* 暂存 name 字符串指针。 */
-    names[idx] = yyjson_get_str(name_val);
-
-    /* 暂存 id 字符串指针。 */
-    ids[idx] = yyjson_get_str(id_val);
-
-    /* 暂存 value 字符串指针。 */
-    values[idx] = yyjson_get_str(value_val);
-  }
-
-  /* 用 O(n^2) 的方式检查是否存在重复 ID。 */
-  for (size_t i = 0; i < count; ++i) {
-    for (size_t j = i + 1; j < count; ++j) {
-      if (strcmp(ids[i], ids[j]) == 0) {
-        free_string_arrays(names, ids, values);
-        yyjson_doc_free(doc);
-        return DATA_FORMAT_ERROR;
-      }
-    }
-  }
-
-  /* 先把当前内存结构重置为空，准备装载新文件内容。 */
-  data_init();
-
-  /* 把所有记录逐条插入系统内部结构。 */
-  for (size_t i = 0; i < count; ++i) {
-    DataStatus status = data_insert(names[i], ids[i], values[i], 0);
-
-    /* 任意一条插入失败都视为整体加载失败。 */
-    if (status != DATA_OK) {
-      /* 回滚到空状态，避免出现半加载状态。 */
-      data_init();
-
-      /* 释放临时数组。 */
-      free_string_arrays(names, ids, values);
-
-      /* 释放 JSON 文档。 */
-      yyjson_doc_free(doc);
-
-      /* 内部如果报重复 ID，统一归并为文件格式错误。 */
-      return status == DATA_DUPLICATE_ID ? DATA_FORMAT_ERROR : status;
-    }
-  }
-
-  /* 临时数组已经用完，可以释放。 */
-  free_string_arrays(names, ids, values);
+  /* 把真实导入逻辑交给公共帮助函数。 */
+  status = import_doc(doc);
 
   /* 释放 JSON 文档。 */
   yyjson_doc_free(doc);
 
-  /* 加载成功后，内存与文件同步，脏标记清零。 */
-  file_modified = 0;
-
-  /* 返回成功。 */
-  return DATA_OK;
+  /* 返回最终状态。 */
+  return status;
 }
 
 DataStatus data_undo(void) {

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <windows.h>
 
+#include "Auth.h"
 #include "Data.h"
 #include "Log.h"
 #include "Trie.h"
@@ -170,6 +171,8 @@ typedef struct DisplayContext {
   char pending_name[512];
   /* 添加流程或修改流程里暂存的 ID。 */
   char pending_id[512];
+  /* 文件类动作里暂存的文件名。 */
+  char pending_file[512];
 
   /* 结果框标题。 */
   char result_title[64];
@@ -352,6 +355,8 @@ static void draw_box(int x, int y, int width, int height, const char* title) {
 }
 
 static void editor_reset(void) {
+  /* 把旧输入内容整体清零，避免密码明文留在缓冲区里。 */
+  auth_wipe_text(ctx.input_buf, sizeof(ctx.input_buf));
   /* 输入长度归零。 */
   ctx.input_len = 0;
   /* 光标回到开头。 */
@@ -625,6 +630,8 @@ static void clear_pending(void) {
   ctx.pending_name[0] = '\0';
   /* 清空暂存 ID。 */
   ctx.pending_id[0] = '\0';
+  /* 清空暂存文件名。 */
+  ctx.pending_file[0] = '\0';
 }
 
 static void clear_search(void) {
@@ -660,6 +667,49 @@ static int is_query_step(void) {
   if (ctx.action == ACTION_MODIFY && ctx.step == 0) return 1;
   /* 其他情况都不属于查询阶段。 */
   return 0;
+}
+
+static int is_file_action_type(CurrentAction action) {
+  /* 保存属于文件类动作。 */
+  if (action == ACTION_SAVE) return 1;
+  /* 加载属于文件类动作。 */
+  if (action == ACTION_LOAD) return 1;
+  /* 新建也属于文件类动作。 */
+  if (action == ACTION_NEW) return 1;
+  /* 其余动作都不是文件类动作。 */
+  return 0;
+}
+
+static int is_password_step(void) {
+  /* 只有文件类动作的第 1 步才会输入密码。 */
+  return is_file_action_type(ctx.action) && ctx.step == 1;
+}
+
+static void append_file_step_summary(const char* detail) {
+  /* 第 1 步之后，结果区回显当前目标文件。 */
+  if (ctx.pending_file[0] != '\0') {
+    result_add_line("文件: %s", ctx.pending_file);
+  }
+
+  /* 文件类动作的第 0 步先输入文件名。 */
+  if (ctx.step == 0) {
+    result_add_line("请输入文件名后按 Enter。");
+  } else {
+    /* 第 1 步输入密码，并在界面上做掩码显示。 */
+    result_add_line("请输入密码后按 Enter。");
+  }
+
+  /* detail 非空时，补一行额外提示。 */
+  if (detail && detail[0] != '\0') {
+    result_add_line("%s", detail);
+  }
+}
+
+static void set_file_step_message(const char* detail) {
+  /* 先重置结果区，再写入文件步骤提示。 */
+  result_clear();
+  result_set_title(action_names[ctx.action]);
+  append_file_step_summary(detail);
 }
 
 static CurrentAction action_from_menu(int menu) {
@@ -700,8 +750,8 @@ static void update_input_summary(void) {
     case ACTION_SAVE:
     case ACTION_LOAD:
     case ACTION_NEW:
-      /* 文件类动作只需要输入文件名。 */
-      result_add_line("请输入文件名后按 Enter。");
+      /* 文件类动作统一追加文件名和密码步骤提示。 */
+      append_file_step_summary(NULL);
       break;
     case ACTION_MODIFY:
       /* 修改动作的第 1 步是输入新值。 */
@@ -860,58 +910,241 @@ static void log_status_for_modify(DataStatus status, const char* id) {
   }
 }
 
-static void log_status_for_file(CurrentAction action, DataStatus status, const char* filename) {
+static void log_auth_status_for_file(CurrentAction action, AuthStatus status,
+                                     const char* filename) {
   /* 保存动作单独处理。 */
   if (action == ACTION_SAVE) {
     switch (status) {
-      case DATA_OK:
-        log_print("已保存到 %s", filename);
-        break;
-      case DATA_IO_ERROR:
+      case AUTH_IO_ERROR:
         log_print("保存文件失败: %s", filename);
         break;
+      case AUTH_INVALID_ARGUMENT:
+        log_print("保存失败，请检查文件名和密码。");
+        break;
       default:
-        log_print("保存失败，请检查文件名。");
+        log_print("保存失败，请检查文件。");
         break;
     }
     return;
   }
+
   /* 加载动作单独处理。 */
   if (action == ACTION_LOAD) {
     switch (status) {
-      case DATA_OK:
-        log_print("已加载 %s", filename);
+      case AUTH_PASSWORD_ERROR:
+        log_print("密码错误。");
         break;
+      case AUTH_FORMAT_ERROR:
+        log_print("文件格式错误: %s", filename);
+        break;
+      case AUTH_IO_ERROR:
+        log_print("加载文件失败: %s", filename);
+        break;
+      case AUTH_INVALID_ARGUMENT:
+        log_print("加载失败，请检查文件名和密码。");
+        break;
+      default:
+        log_print("加载失败，请检查文件。");
+        break;
+    }
+    return;
+  }
+
+  /* 剩余文件动作就是新建文件。 */
+  switch (status) {
+    case AUTH_IO_ERROR:
+      log_print("新建文件失败: %s", filename);
+      break;
+    case AUTH_INVALID_ARGUMENT:
+      log_print("新建失败，请检查文件名和密码。");
+      break;
+    default:
+      log_print("新建失败，请检查文件。");
+      break;
+  }
+}
+
+static void log_data_status_for_file(CurrentAction action, DataStatus status,
+                                     const char* filename) {
+  /* 加载成功后的数据层状态单独处理。 */
+  if (action == ACTION_LOAD) {
+    switch (status) {
       case DATA_DIRTY_BLOCKED:
         log_print("当前数据已修改，先保存再加载。");
         break;
       case DATA_FORMAT_ERROR:
-        log_print("文件格式错误: %s", filename);
-        break;
-      case DATA_IO_ERROR:
-        log_print("加载文件失败: %s", filename);
+        log_print("明文数据格式错误: %s", filename);
         break;
       default:
-        log_print("加载失败，请检查文件名。");
+        log_print("加载后的数据解析失败。");
         break;
     }
     return;
   }
-  /* 剩余文件动作就是新建文件。 */
-  switch (status) {
-    case DATA_OK:
-      log_print("已新建空文件 %s", filename);
-      break;
-    case DATA_DIRTY_BLOCKED:
-      log_print("当前数据已修改，先保存再新建。");
-      break;
-    case DATA_IO_ERROR:
-      log_print("新建文件失败: %s", filename);
-      break;
-    default:
-      log_print("新建失败，请检查文件名。");
-      break;
+
+  /* 保存动作只会在导出 JSON 阶段使用这个帮助函数。 */
+  if (action == ACTION_SAVE) {
+    switch (status) {
+      default:
+        log_print("保存前的数据导出失败。");
+        break;
+    }
+    return;
   }
+
+  /* 新建动作在数据层只有 data_init，不需要额外处理。 */
+  if (status == DATA_DIRTY_BLOCKED) {
+    log_print("当前数据已修改，先保存再新建。");
+  }
+}
+
+static void reset_file_password_step(const char* detail) {
+  /* 先清空密码输入框，再刷新文件步骤提示。 */
+  editor_reset();
+  set_file_step_message(detail);
+}
+
+static void submit_file_step_filename(void) {
+  /* 第 0 步要求先输入文件名。 */
+  if (ctx.input_len == 0) {
+    log_print("请输入文件名。");
+    return;
+  }
+
+  /* 先把输入缓冲区补成合法字符串。 */
+  ctx.input_buf[ctx.input_len] = '\0';
+
+  /* 记录目标文件名，并切到密码步骤。 */
+  snprintf(ctx.pending_file, sizeof(ctx.pending_file), "%s", ctx.input_buf);
+  ctx.step = 1;
+  editor_reset();
+  update_input_summary();
+}
+
+static int handle_dirty_blocked_file_action(void) {
+  /* 加载前，先检查脏数据保护。 */
+  if (ctx.action == ACTION_LOAD && data_is_modified()) {
+    log_data_status_for_file(ctx.action, DATA_DIRTY_BLOCKED, ctx.pending_file);
+    reset_file_password_step("当前数据已修改，先保存再加载。");
+    return 1;
+  }
+
+  /* 新建前，同样检查脏数据保护。 */
+  if (ctx.action == ACTION_NEW && data_is_modified()) {
+    log_data_status_for_file(ctx.action, DATA_DIRTY_BLOCKED, ctx.pending_file);
+    reset_file_password_step("当前数据已修改，先保存再新建。");
+    return 1;
+  }
+
+  /* 其余情况不阻塞。 */
+  return 0;
+}
+
+static void submit_save_file(void) {
+  /* data_status 保存明文 JSON 导出的执行结果。 */
+  DataStatus data_status;
+
+  /* auth_status 保存加密文件保存结果。 */
+  AuthStatus auth_status;
+
+  /* json_text 保存导出的 JSON 文本。 */
+  char* json_text = NULL;
+
+  /* json_len 保存导出的 JSON 字节数。 */
+  size_t json_len = 0;
+
+  /* 先把当前链表导出成明文 JSON。 */
+  data_status = data_export_json(&json_text, &json_len);
+  if (data_status != DATA_OK) {
+    log_data_status_for_file(ctx.action, data_status, ctx.pending_file);
+    reset_file_password_step("保存前的数据导出失败。");
+    return;
+  }
+
+  /* 再把 JSON 明文交给 Auth 模块加密写盘。 */
+  auth_status = auth_save_file(ctx.pending_file, ctx.input_buf,
+                               (const unsigned char*)json_text, json_len);
+  auth_wipe_text(json_text, json_len + 1);
+  free(json_text);
+  editor_reset();
+  if (auth_status != AUTH_OK) {
+    log_auth_status_for_file(ctx.action, auth_status, ctx.pending_file);
+    set_file_step_message("保存失败，请重新输入密码。");
+    return;
+  }
+
+  /* 成功后统一更新状态和日志。 */
+  data_mark_clean();
+  set_file_loaded(ctx.pending_file);
+  log_print("已保存到 %s", ctx.pending_file);
+  result_set_message("保存文件", "已保存到 %s", ctx.pending_file);
+  enter_menu();
+}
+
+static void submit_load_file(void) {
+  /* auth_status 保存解密文件结果。 */
+  AuthStatus auth_status;
+
+  /* data_status 保存导入明文 JSON 的结果。 */
+  DataStatus data_status;
+
+  /* plaintext 保存 Auth 解密出来的 JSON 明文。 */
+  unsigned char* plaintext = NULL;
+
+  /* plaintext_len 保存 JSON 明文长度。 */
+  size_t plaintext_len = 0;
+
+  /* 先让 Auth 验证密码并解密出 JSON 明文。 */
+  auth_status =
+      auth_load_file(ctx.pending_file, ctx.input_buf, &plaintext, &plaintext_len);
+  editor_reset();
+  if (auth_status != AUTH_OK) {
+    log_auth_status_for_file(ctx.action, auth_status, ctx.pending_file);
+    if (auth_status == AUTH_PASSWORD_ERROR) {
+      set_file_step_message("密码错误，请重新输入密码。");
+    } else {
+      set_file_step_message("加载失败，请重新输入密码或检查文件。");
+    }
+    return;
+  }
+
+  /* Auth 成功后，再把明文 JSON 导入数据层。 */
+  data_status = data_import_json((const char*)plaintext, plaintext_len);
+  auth_wipe_text((char*)plaintext, plaintext_len + 1);
+  auth_free_buffer(plaintext);
+  if (data_status != DATA_OK) {
+    log_data_status_for_file(ctx.action, data_status, ctx.pending_file);
+    set_file_step_message("文件已解密，但明文数据格式错误。");
+    return;
+  }
+
+  /* 成功后统一更新状态和日志。 */
+  set_file_loaded(ctx.pending_file);
+  log_print("已加载 %s", ctx.pending_file);
+  result_set_message("加载文件", "已加载 %s", ctx.pending_file);
+  enter_menu();
+}
+
+static void submit_new_file(void) {
+  /* auth_status 保存新建空加密文件的结果。 */
+  AuthStatus auth_status;
+
+  /* 剩余情况就是新建空加密文件。 */
+  auth_status = auth_save_file(ctx.pending_file, ctx.input_buf,
+                               (const unsigned char*)"[]", 2);
+  editor_reset();
+  if (auth_status != AUTH_OK) {
+    log_auth_status_for_file(ctx.action, auth_status, ctx.pending_file);
+    set_file_step_message("新建失败，请重新输入密码。");
+    return;
+  }
+
+  /* 新建成功后，把当前工作区切到空状态。 */
+  data_init();
+  set_file_loaded(ctx.pending_file);
+  log_print("已新建空文件 %s", ctx.pending_file);
+  result_set_message("新建文件", "已创建并切换到 %s", ctx.pending_file);
+  enter_menu();
 }
 
 static void submit_query_match(const DataNode* node) {
@@ -1079,46 +1312,38 @@ static void submit_modify_value(void) {
 }
 
 static void submit_file_action(void) {
-  /* status 保存文件类动作的执行结果。 */
-  DataStatus status;
+  /* 第 0 步先采集文件名。 */
+  if (ctx.step == 0) {
+    submit_file_step_filename();
+    return;
+  }
 
-  /* 文件名为空时不执行。 */
+  /* 第 1 步输入密码。 */
   if (ctx.input_len == 0) {
-    log_print("请输入文件名。");
+    log_print("请输入密码。");
     return;
   }
 
-  /* 补上字符串结束符。 */
+  /* 先补上密码输入的字符串结束符。 */
   ctx.input_buf[ctx.input_len] = '\0';
-  if (ctx.action == ACTION_SAVE) {
-    /* 保存动作调用 data_save。 */
-    status = data_save(ctx.input_buf);
-  } else if (ctx.action == ACTION_LOAD) {
-    /* 加载动作调用 data_load。 */
-    status = data_load(ctx.input_buf);
-  } else {
-    /* 其余就是新建动作。 */
-    status = data_new(ctx.input_buf);
-  }
 
-  /* 日志区显示执行结果。 */
-  log_status_for_file(ctx.action, status, ctx.input_buf);
-  if (status == DATA_OK) {
-    /* 成功后更新当前文件名状态。 */
-    set_file_loaded(ctx.input_buf);
-    if (ctx.action == ACTION_SAVE) {
-      result_set_message("保存文件", "已保存到 %s", ctx.input_buf);
-    } else if (ctx.action == ACTION_LOAD) {
-      result_set_message("加载文件", "已加载 %s", ctx.input_buf);
-    } else {
-      result_set_message("新建文件", "已创建并切换到 %s", ctx.input_buf);
-    }
-    enter_menu();
+  /* 需要干净状态的文件动作先检查脏数据保护。 */
+  if (handle_dirty_blocked_file_action()) {
     return;
   }
 
-  /* 失败时保留在输入态，并刷新提示。 */
-  update_input_summary();
+  if (ctx.action == ACTION_SAVE) {
+    submit_save_file();
+    return;
+  }
+
+  if (ctx.action == ACTION_LOAD) {
+    submit_load_file();
+    return;
+  }
+
+  /* 剩余情况就是新建动作。 */
+  submit_new_file();
 }
 
 static void submit_input(void) {
@@ -1263,6 +1488,11 @@ static const char* current_prompt(void) {
     case ACTION_MODIFY:
       if (ctx.step == 0) return "ID/姓名前缀";
       return "新值";
+    case ACTION_SAVE:
+    case ACTION_LOAD:
+    case ACTION_NEW:
+      if (ctx.step == 0) return "文件名";
+      return "密码";
     default:
       return "文件名";
   }
@@ -1344,6 +1574,86 @@ static void render_result_box(int x, int y, int width, int height) {
   }
 }
 
+static int input_char_index_at(int byte_index) {
+  /* count 统计从开头到指定字节位置之间共有多少个字符。 */
+  int count = 0;
+
+  /* i 沿着 UTF-8 字符边界逐个前进。 */
+  int i = 0;
+
+  /* 按字符边界累加，直到抵达目标字节位置。 */
+  while (i < byte_index && i < ctx.input_len) {
+    i = next_char_start(ctx.input_buf, i, ctx.input_len);
+    count++;
+  }
+
+  /* 返回对应的字符下标。 */
+  return count;
+}
+
+static void render_masked_input_value(int x, int y, int width) {
+  /* total_chars 保存整段密码一共有多少个字符。 */
+  int total_chars = input_char_index_at(ctx.input_len);
+
+  /* cursor_chars 保存光标当前位于第几个字符前。 */
+  int cursor_chars = input_char_index_at(ctx.input_cursor);
+
+  /* start 表示可视窗口左边界对应的字符下标。 */
+  int start = cursor_chars;
+
+  /* used 统计已经占用的显示宽度。 */
+  int used = 0;
+
+  /* prefix 为 1 时，左侧还有被折叠的内容。 */
+  int prefix = 0;
+
+  /* 从光标位置开始向左回退，保证光标附近内容优先可见。 */
+  while (start > 0) {
+    if (used + 1 >= width) break;
+    used++;
+    start--;
+  }
+
+  /* 左侧仍有隐藏字符时，用 '<' 提示。 */
+  if (start > 0 && width > 1) {
+    prefix = 1;
+    move_cursor(y, x);
+    putchar('<');
+    width--;
+    x++;
+  }
+
+  /* 从可视窗口起点开始绘制掩码字符。 */
+  used = 0;
+  for (int i = start; i < total_chars && used < width; ++i) {
+    move_cursor(y, x + used);
+    if (i == cursor_chars) printf(INVERT);
+    putchar('*');
+    if (i == cursor_chars) printf(RESET);
+    used++;
+  }
+
+  /* 光标位于末尾时，高亮一个空格占位。 */
+  if (cursor_chars == total_chars && used < width) {
+    move_cursor(y, x + used);
+    printf(INVERT " " RESET);
+    used++;
+  }
+
+  /* 把其余位置补空格，覆盖旧画面。 */
+  move_cursor(y, x + used);
+  while (used < width) {
+    putchar(' ');
+    used++;
+  }
+
+  /* 左侧存在隐藏内容时，重新补上提示符。 */
+  if (prefix) {
+    move_cursor(y, x - 1);
+    putchar('<');
+  }
+}
+
 static void render_input_value(int x, int y, int width) {
   /* field_width 是可用于显示输入内容的宽度。 */
   int field_width = width;
@@ -1355,6 +1665,12 @@ static void render_input_value(int x, int y, int width) {
   int prefix = 0;
   /* i 用来遍历输入缓冲区。 */
   int i;
+
+  /* 密码步骤统一显示为掩码。 */
+  if (is_password_step()) {
+    render_masked_input_value(x, y, width);
+    return;
+  }
 
   /* 从光标向左回退，找到一段能完整显示的窗口起点。 */
   while (start > 0) {
